@@ -1,110 +1,168 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { THRESHOLDS, AMBIENT_SMOOTHING, SPEAKER_OFFSET } from './constants';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { 
+  RATIO, 
+  THRESHOLDS, 
+  VIBRATION_PATTERN, 
+  AMBIENT_ALPHA, 
+  SPEAKER_OFFSET, 
+  VOICE_RATIO_MIN, 
+  DEBUG_MODE 
+} from './constants';
 
-const FFT_SIZE = 2048;
-const INITIAL_AMBIENT = 40; // conservative starting floor
-
-export function useAudioAnalyzer() {
-  const [status, setStatus] = useState('silent'); // silent | good | loud | danger
+export function useAudioAnalyzer(personalizedLevels = null, sessionComfortLevel = null) {
+  const [status, setStatus] = useState('silent');
   const [currentDb, setCurrentDb] = useState(0);
-  const [ambientDb, setAmbientDb] = useState(INITIAL_AMBIENT);
-  const [permissionState, setPermissionState] = useState('pending'); // pending | granted | denied
+  const [ambientDb, setAmbientDb] = useState(40);
+  const [permissionState, setPermissionState] = useState('pending');
 
-  const audioCtxRef = useRef(null);
-  const analyserRef = useRef(null);
-  const sourceRef = useRef(null);
-  const rafRef = useRef(null);
-  const ambientRef = useRef(INITIAL_AMBIENT);
-  const lastHapticRef = useRef(0);
-
-  const triggerHaptic = useCallback(() => {
-    if (!navigator.vibrate) return;
-    const now = Date.now();
-    if (now - lastHapticRef.current < 1500) return; // 1.5s debounce
-    lastHapticRef.current = now;
-    navigator.vibrate([200, 100, 200]);
-  }, []);
-
-  const loop = useCallback(() => {
-    const analyser = analyserRef.current;
-    if (!analyser) return;
-
-    const dataArray = new Float32Array(analyser.frequencyBinCount);
-    analyser.getFloatTimeDomainData(dataArray);
-
-    // RMS → approximate SPL-like dB (offset +90 maps typical mic range to 0–120dB)
-    let sumSq = 0;
-    for (let i = 0; i < dataArray.length; i++) {
-      sumSq += dataArray[i] * dataArray[i];
-    }
-    const rms = Math.sqrt(sumSq / dataArray.length);
-    const rawDb = rms > 1e-10 ? 20 * Math.log10(rms) + 90 : 0;
-    const db = Math.max(0, Math.min(120, rawDb));
-
-    // Speech detection gate: must exceed ambient floor by SPEAKER_OFFSET
-    const isSpeech = db >= ambientRef.current + SPEAKER_OFFSET;
-
-    if (!isSpeech) {
-      // Update ambient EMA only during non-speech segments
-      ambientRef.current =
-        ambientRef.current * (1 - AMBIENT_SMOOTHING) + db * AMBIENT_SMOOTHING;
-    }
-
-    // Determine status using absolute dB thresholds (only when speech detected)
-    let newStatus;
-    if (!isSpeech || db < THRESHOLDS.SILENCE) {
-      newStatus = 'silent';
-    } else if (db < THRESHOLDS.GOOD_MAX) {
-      newStatus = 'good';
-    } else if (db < THRESHOLDS.LOUD_MAX) {
-      newStatus = 'loud';
-    } else {
-      newStatus = 'danger';
-      triggerHaptic();
-    }
-
-    setCurrentDb(db); // keep as float for smoother canvas animation
-    setAmbientDb(Math.round(ambientRef.current));
-    setStatus(newStatus);
-
-    rafRef.current = requestAnimationFrame(loop);
-  }, [triggerHaptic]);
+  const latestDbRef = useRef(0);
+  const ambientRef = useRef(40);
+  const personalizedRef = useRef(personalizedLevels);
+  const sessionComfortRef = useRef(sessionComfortLevel);
 
   useEffect(() => {
-    let stream;
+    personalizedRef.current = personalizedLevels;
+    if (personalizedLevels) {
+      ambientRef.current = personalizedLevels.ambientBaseline;
+      setAmbientDb(Math.round(personalizedLevels.ambientBaseline));
+    }
+  }, [personalizedLevels]);
 
-    async function start() {
+  useEffect(() => {
+    sessionComfortRef.current = sessionComfortLevel;
+  }, [sessionComfortLevel]);
+
+  const triggerHaptic = useCallback(() => {
+    if ('vibrate' in navigator) {
+      navigator.vibrate(VIBRATION_PATTERN);
+    }
+  }, []);
+
+  useEffect(() => {
+    let audioContext;
+    let analyser;
+    let stream;
+    let rafId;
+
+    async function setupAudio() {
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         setPermissionState('granted');
 
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = FFT_SIZE;
-        analyser.smoothingTimeConstant = 0.5;
-
-        const source = ctx.createMediaStreamSource(stream);
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        window.audioContextInstance = audioContext; 
+        
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 2048;
+        const source = audioContext.createMediaStreamSource(stream);
         source.connect(analyser);
 
-        audioCtxRef.current = ctx;
-        analyserRef.current = analyser;
-        sourceRef.current = source;
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        const timeDataArray = new Uint8Array(bufferLength);
 
-        rafRef.current = requestAnimationFrame(loop);
-      } catch {
+        const sampleRate = audioContext.sampleRate;
+        const binHz = sampleRate / analyser.fftSize;
+        const voiceLow = Math.floor(85 / binHz);
+        const voiceHigh = Math.ceil(3000 / binHz);
+
+        function update() {
+          analyser.getByteFrequencyData(dataArray);
+          analyser.getByteTimeDomainData(timeDataArray);
+
+          let sum = 0;
+          for (let i = 0; i < bufferLength; i++) {
+            const val = (timeDataArray[i] - 128) / 128;
+            sum += val * val;
+          }
+          const rms = Math.sqrt(sum / bufferLength);
+          const db = rms > 0 ? 20 * Math.log10(rms) + 100 : 0; 
+          
+          setCurrentDb(db);
+          latestDbRef.current = db;
+
+          // Frequency Analysis
+          const voiceEnergy = dataArray.slice(voiceLow, voiceHigh).reduce((a, b) => a + b, 0);
+          const totalEnergy = dataArray.reduce((a, b) => a + b, 0);
+          const voiceRatio = totalEnergy > 0 ? voiceEnergy / totalEnergy : 0;
+          const isVoiceLike = voiceRatio >= VOICE_RATIO_MIN;
+
+          let nextStatus = 'silent';
+
+          if (isVoiceLike) {
+            const curAmbient = ambientRef.current;
+            const isSpeaking = db > curAmbient + SPEAKER_OFFSET;
+
+            // Ambient update only if NOT speaking
+            if (!isSpeaking) {
+              ambientRef.current = AMBIENT_ALPHA * db + (1 - AMBIENT_ALPHA) * curAmbient;
+              setAmbientDb(Math.round(ambientRef.current));
+            }
+
+            const relative = db - curAmbient;
+            const levels = personalizedRef.current;
+            const sComfort = sessionComfortRef.current;
+            
+            // Determine Gap: Use session recalibration if available, else onboarding
+            const effectiveComfortGap = sComfort 
+              ? (sComfort - curAmbient) 
+              : (levels ? (levels.comfortableLevel - levels.ambientBaseline) : 0);
+
+            if (effectiveComfortGap > 10) { // Relative mode
+              const ratio = relative / effectiveComfortGap;
+              if (ratio < RATIO.SILENT_MAX) nextStatus = 'silent';
+              else if (ratio <= RATIO.GOOD_MAX) nextStatus = 'good';
+              else if (ratio <= RATIO.LOUD_MAX) nextStatus = 'loud';
+              else nextStatus = 'danger';
+            } else { // Fallback: Absolute mode
+              if (db < THRESHOLDS.SILENCE) nextStatus = 'silent';
+              else if (db < THRESHOLDS.GOOD_MAX) nextStatus = 'good';
+              else if (db < THRESHOLDS.LOUD_MAX) nextStatus = 'loud';
+              else nextStatus = 'danger';
+            }
+
+            if (DEBUG_MODE && Math.random() < 0.05) { // Log sampled frames
+              console.log({
+                currentDb: db.toFixed(1),
+                ambientFloor: curAmbient.toFixed(1),
+                relative: relative.toFixed(1),
+                effectiveComfortGap: effectiveComfortGap.toFixed(1),
+                ratio: effectiveComfortGap > 10 ? (relative / effectiveComfortGap).toFixed(2) : 'fallback',
+                voiceRatio: voiceRatio.toFixed(2),
+                isVoiceLike,
+                isSpeaking,
+                sessionComfort: sComfort?.toFixed(1) ?? 'not set',
+                state: nextStatus,
+              });
+            }
+          } else {
+            // Force silent if not voice-like
+            nextStatus = 'silent';
+            // Ambient still updates when silent
+            const curAmbient = ambientRef.current;
+            ambientRef.current = AMBIENT_ALPHA * db + (1 - AMBIENT_ALPHA) * curAmbient;
+            setAmbientDb(Math.round(ambientRef.current));
+          }
+
+          setStatus(nextStatus);
+          rafId = requestAnimationFrame(update);
+        }
+
+        update();
+      } catch (err) {
+        console.error('Audio setup failed:', err);
         setPermissionState('denied');
       }
     }
 
-    start();
+    setupAudio();
 
     return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      if (sourceRef.current) sourceRef.current.disconnect();
-      if (audioCtxRef.current) audioCtxRef.current.close();
-      if (stream) stream.getTracks().forEach((t) => t.stop());
+      cancelAnimationFrame(rafId);
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      if (audioContext) audioContext.close();
     };
-  }, [loop]);
+  }, []);
 
-  return { status, currentDb, ambientDb, permissionState };
+  return { status, currentDb, ambientDb, permissionState, triggerHaptic };
 }

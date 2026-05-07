@@ -1,18 +1,41 @@
 // Vocal loading thresholds
 // Source: Pearsons et al. (1977), Echternach et al. vocal loading research
-// Reference: ~30cm mic distance, typical conversation environment
 export const THRESHOLDS = {
-  SILENCE: 55,   // below → silent/ambient
-  GOOD_MAX: 68,  // 55–68 → normal conversation (65 dBA ± 3)
-  LOUD_MAX: 80,  // 68–80 → above average, pre-strain zone
-                 // 80+ → exceeds vocal loading threshold (haptic zone)
+  SILENCE:  55,
+  GOOD_MAX: 68,
+  LOUD_MAX: 80,
 };
 
-// EMA smoothing factor for ambient floor (slow adaptation)
-export const AMBIENT_SMOOTHING = 0.02;
+export const VOCAL_STRAIN_ABS = 85;   // Absolute dB threshold for vocal strain
+export const DEBUG_MODE = true;       // Set to false for production
 
-// Minimum dB above ambient to classify as speech
-// Mitigates other speakers being classified as ambient
-export const SPEAKER_OFFSET = 15;
+export const RATIO = {
+  SILENT_MAX: 0.5,
+  GOOD_MAX:   1.2,
+  LOUD_MAX:   1.6,
+};
+
+export const RECAL = {
+  WINDOW_SEC:    60,   // Collection window for recalibration
+  MIN_VOICE_SEC: 10,   // Min voice accumulation for finalizing recal
+};
+
+export const LOCAL_STORAGE_KEYS = {
+  AMBIENT_BASELINE: 'vm_ambient_baseline',
+  COMFORTABLE_LEVEL: 'vm_comfortable_level',
+  ONBOARDING_COMPLETE: 'vm_onboarding_complete',
+  NICKNAME: 'vm_nickname',
+};
+
+export const AMBIENT_ALPHA = 0.005;   // EMA update speed (lower is slower)
+export const SPEAKER_OFFSET = 15;      // dB difference to be recognized as speaking
+export const VOICE_RATIO_MIN = 0.4;    // Minimum frequency energy ratio for human voice
+
+export const STATE_CONFIG = {
+  silent: { bg: '#0e0e0e', label: 'SILENT' },
+  good: { bg: '#0a1a0f', label: 'GOOD' },
+  loud: { bg: '#1a1a0a', label: 'LOUD' },
+  danger: { bg: '#1a0a0a', label: 'DANGER' },
+};
 
 export const VIBRATION_PATTERN = [200, 100, 200];

@@ -1,103 +1,164 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState, useMemo } from 'react';
 import './App.css';
 import { useAudioAnalyzer } from './useAudioAnalyzer';
-
-// State → visual target config
-const STATE_CONFIG = {
-  silent: { bg: '#0e0e0e', color: [0x2a, 0x2a, 0x2a], baseRadius: 18 },
-  good:   { bg: '#0a1a0f', color: [0x4a, 0xdf, 0x84], baseRadius: 38 },
-  loud:   { bg: '#1a1400', color: [0xf5, 0xc5, 0x18], baseRadius: 52 },
-  danger: { bg: '#1a0505', color: [0xff, 0x3b, 0x3b], baseRadius: 66 },
-};
-
-// Exponential lerp factor: how much of the gap to close per second
-// At k=0.15: half-life ≈ 0.37s (feels natural for a breath transition)
-const LERP_K = 0.15;
-
-function BreathCanvas({ status }) {
-  const canvasRef = useRef(null);
-  // All animation state lives in a ref to avoid triggering re-renders
-  const animRef = useRef({
-    radius: 18,
-    r: 0x2a, g: 0x2a, b: 0x2a,
-    time: 0,
-    lastTs: null,
-  });
-  // Keep a ref to the latest status so the RAF closure always sees current value
-  const statusRef = useRef(status);
-  useEffect(() => { statusRef.current = status; }, [status]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    let rafId;
-
-    function resize() {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    }
-    resize();
-    window.addEventListener('resize', resize);
-
-    function draw(timestamp) {
-      const anim = animRef.current;
-      const dt = anim.lastTs !== null ? Math.min((timestamp - anim.lastTs) / 1000, 0.1) : 0;
-      anim.lastTs = timestamp;
-      anim.time += dt;
-
-      const target = STATE_CONFIG[statusRef.current];
-      // dt-compensated exponential lerp: each second closes (1 - LERP_K) of the gap
-      const lerpFactor = 1 - Math.pow(LERP_K, dt || 0.016);
-
-      anim.radius += (target.baseRadius - anim.radius) * lerpFactor;
-      anim.r += (target.color[0] - anim.r) * lerpFactor;
-      anim.g += (target.color[1] - anim.g) * lerpFactor;
-      anim.b += (target.color[2] - anim.b) * lerpFactor;
-
-      // Subtle breathing pulse: 0.25 Hz (4-second cycle)
-      const pulseAmp = anim.radius * 0.15;
-      const r = Math.max(1, anim.radius + pulseAmp * Math.sin(anim.time * Math.PI * 0.5));
-
-      const cx = canvas.width / 2;
-      const cy = canvas.height / 2;
-      const cr = Math.round(anim.r);
-      const cg = Math.round(anim.g);
-      const cb = Math.round(anim.b);
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // Draw outer → inner so the solid core sits on top of the halos
-      const rings = [
-        { scale: 2.8, opacity: 0.15 },
-        { scale: 1.8, opacity: 0.25 },
-        { scale: 1.0, opacity: 1.0  },
-      ];
-      rings.forEach(({ scale, opacity }) => {
-        ctx.beginPath();
-        ctx.arc(cx, cy, r * scale, 0, Math.PI * 2);
-        ctx.fillStyle = `rgb(${cr},${cg},${cb})`;
-        ctx.globalAlpha = opacity;
-        ctx.fill();
-      });
-      ctx.globalAlpha = 1;
-
-      rafId = requestAnimationFrame(draw);
-    }
-
-    rafId = requestAnimationFrame(draw);
-    return () => {
-      cancelAnimationFrame(rafId);
-      window.removeEventListener('resize', resize);
-    };
-  }, []); // RAF loop starts once, reads statusRef reactively
-
-  return <canvas ref={canvasRef} className="breath-canvas" />;
-}
+import { LOCAL_STORAGE_KEYS } from './constants';
+import MainView from './views/MainView';
+import InsightView from './views/InsightView';
+import BreathCanvas from './components/BreathCanvas';
+import { useSessionRecorder } from './hooks/useSessionRecorder';
 
 export default function App() {
-  const { status, currentDb, ambientDb, permissionState } = useAudioAnalyzer();
-  const bg = STATE_CONFIG[status]?.bg ?? '#0e0e0e';
-  const relativeDb = Math.max(0, Math.round(currentDb) - ambientDb);
+  const [view, setView] = useState('main'); // main | insight
+  const [onboardingStep, setOnboardingStep] = useState(() => {
+    if (!localStorage.getItem(LOCAL_STORAGE_KEYS.NICKNAME)) return 'nickname';
+    if (!localStorage.getItem(LOCAL_STORAGE_KEYS.ONBOARDING_COMPLETE)) return 'ambient';
+    return 'ambient'; // Always run ambient check on launch
+  });
+  const [isAmbientStarted, setIsAmbientStarted] = useState(false);
+  const [onboardingData, setOnboardingData] = useState({
+    ambientBaseline: null,
+    comfortableLevel: null,
+  });
+  const [countdown, setCountdown] = useState(0);
+  const [errorMsg, setErrorMsg] = useState(null);
+  const [nicknameInput, setNicknameInput] = useState('');
+
+  const personalizedLevels = useMemo(() => {
+    if (onboardingStep !== null) return null;
+    const ambient = localStorage.getItem(LOCAL_STORAGE_KEYS.AMBIENT_BASELINE);
+    const comfort = localStorage.getItem(LOCAL_STORAGE_KEYS.COMFORTABLE_LEVEL);
+    if (ambient && comfort) {
+      return {
+        ambientBaseline: parseFloat(ambient),
+        comfortableLevel: parseFloat(comfort),
+      };
+    }
+    return null;
+  }, [onboardingStep]);
+
+  // Temporary holder for recal level to pass into analyzer
+  const [bridgeComfortLevel, setBridgeComfortLevel] = useState(null);
+
+  const { status, currentDb, ambientDb, permissionState, triggerHaptic } = useAudioAnalyzer(personalizedLevels, bridgeComfortLevel);
+  
+  const { currentSession, sessionComfortLevel } = useSessionRecorder(
+    currentDb, 
+    status, 
+    ambientDb, 
+    onboardingStep === null && view === 'main' 
+  );
+
+  useEffect(() => {
+    if (sessionComfortLevel !== bridgeComfortLevel) {
+      setBridgeComfortLevel(sessionComfortLevel);
+    }
+  }, [sessionComfortLevel]);
+
+  const latestDbRef = useRef(currentDb);
+  useEffect(() => {
+    latestDbRef.current = currentDb;
+  }, [currentDb]);
+
+  // Onboarding sequence
+  useEffect(() => {
+    if (onboardingStep === 'ambient' && isAmbientStarted) {
+      const duration = 5000;
+      const start = Date.now();
+      const samples = [];
+      
+      const interval = setInterval(() => {
+        const elapsed = Date.now() - start;
+        setCountdown(Math.min(100, (elapsed / duration) * 100));
+        samples.push(latestDbRef.current);
+        
+        if (elapsed >= duration) {
+          clearInterval(interval);
+          const avg = samples.reduce((a, b) => a + b, 0) / samples.length;
+          setOnboardingData(prev => ({ ...prev, ambientBaseline: avg }));
+          
+          const savedComfort = localStorage.getItem(LOCAL_STORAGE_KEYS.COMFORTABLE_LEVEL);
+          if (savedComfort) {
+            localStorage.setItem(LOCAL_STORAGE_KEYS.AMBIENT_BASELINE, avg);
+            setOnboardingStep(null);
+          } else {
+            setOnboardingStep('speech');
+          }
+        }
+      }, 50);
+      return () => clearInterval(interval);
+    }
+
+    if (onboardingStep === 'speech') {
+      const duration = 10000;
+      const start = Date.now();
+      const speechSamples = [];
+      setCountdown(0);
+      setErrorMsg(null);
+      
+      const interval = setInterval(() => {
+        const elapsed = Date.now() - start;
+        setCountdown(Math.min(100, (elapsed / duration) * 100));
+        
+        const db = latestDbRef.current;
+        if (db > onboardingData.ambientBaseline + 10) {
+          speechSamples.push(db);
+        }
+        
+        if (elapsed >= duration) {
+          clearInterval(interval);
+          if (speechSamples.length < 60) {
+            setErrorMsg('발화가 너무 짧아요. 다시 시도해주세요.');
+            setTimeout(() => {
+              setOnboardingStep('speech_retry');
+            }, 1500);
+          } else {
+            const avg = speechSamples.reduce((a, b) => a + b, 0) / speechSamples.length;
+            setOnboardingData(prev => ({ ...prev, comfortableLevel: avg }));
+            setOnboardingStep('complete');
+          }
+        }
+      }, 50);
+      return () => clearInterval(interval);
+    }
+
+    if (onboardingStep === 'speech_retry') {
+      setOnboardingStep('speech');
+    }
+
+    if (onboardingStep === 'complete') {
+      localStorage.setItem(LOCAL_STORAGE_KEYS.AMBIENT_BASELINE, onboardingData.ambientBaseline);
+      localStorage.setItem(LOCAL_STORAGE_KEYS.COMFORTABLE_LEVEL, onboardingData.comfortableLevel);
+      localStorage.setItem(LOCAL_STORAGE_KEYS.ONBOARDING_COMPLETE, 'true');
+      
+      const timeout = setTimeout(() => {
+        setOnboardingStep(null);
+      }, 2000);
+      return () => clearTimeout(timeout);
+    }
+  }, [onboardingStep, onboardingData.ambientBaseline, isAmbientStarted]);
+
+  const handleNicknameSubmit = (e) => {
+    if (e) e.preventDefault();
+    if (nicknameInput.trim()) {
+      localStorage.setItem(LOCAL_STORAGE_KEYS.NICKNAME, nicknameInput.trim());
+      setOnboardingStep('ambient');
+    }
+  };
+
+  // Reset logic
+  const longPressRef = useRef(null);
+  const handleResetStart = () => {
+    longPressRef.current = setTimeout(() => {
+      localStorage.clear();
+      window.location.reload();
+    }, 3000);
+  };
+  const handleResetEnd = () => {
+    if (longPressRef.current) {
+      clearTimeout(longPressRef.current);
+      longPressRef.current = null;
+    }
+  };
 
   if (permissionState === 'denied') {
     return (
@@ -110,14 +171,92 @@ export default function App() {
     );
   }
 
-  return (
-    <div className="app" style={{ backgroundColor: bg }}>
-      <BreathCanvas status={status} />
-      <span className="app-name">VOICEMIRROR</span>
-      <div className="bottom-info">
-        <span>ambient {ambientDb} dB</span>
-        <span>+{relativeDb} dB</span>
+  // Onboarding UI
+  if (onboardingStep !== null) {
+    if (onboardingStep === 'nickname') {
+      return (
+        <div className="app onboarding-step0">
+          <div className="nickname-step">
+            <p className="onboarding-guide">당신을 어떻게 부를까요?</p>
+            <form onSubmit={handleNicknameSubmit}>
+              <input 
+                type="text" 
+                className="nickname-input"
+                placeholder="이름 또는 닉네임"
+                maxLength={10}
+                autoFocus
+                value={nicknameInput}
+                onChange={(e) => setNicknameInput(e.target.value)}
+              />
+              <button 
+                type="submit" 
+                className="nickname-submit"
+                style={{ opacity: nicknameInput.trim() ? 1 : 0.4 }}
+              >
+                →
+              </button>
+            </form>
+            <p className="nickname-note">
+              현재 닉네임은 localStorage에만 저장. 추후 Supabase anonymous auth 연동 시 user metadata로 이전하여 다기기 동기화 예정.
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    let text = "";
+    let subtext = "";
+    let overrideConfig = null;
+
+    if (onboardingStep === 'ambient') {
+      text = isAmbientStarted 
+        ? "주변 소리만 있는 상태로\n5초간 기다려주세요."
+        : "탭하여 주변 소음 측정을\n시작하세요.";
+      overrideConfig = { color: [0x2a, 0x2a, 0x2a], baseRadius: 12 };
+    } else if (onboardingStep === 'speech') {
+      text = "지금처럼 편하게\n말해보세요. (10초)";
+      subtext = '"오늘 날씨가 참 좋네요. 주변 사람들과 즐겁게 대화하며 기분 좋은 하루를 보내고 있어요."';
+      overrideConfig = { color: [0x4a, 0xdf, 0x84], baseRadius: 38 };
+    } else if (onboardingStep === 'complete') {
+      text = "준비됐어요.";
+      overrideConfig = { color: [0x4a, 0xdf, 0x84], baseRadius: 60 };
+    }
+
+    return (
+      <div className="app onboarding" onClick={() => {
+        if (onboardingStep === 'ambient' && !isAmbientStarted) {
+          const ctx = window.audioContextInstance; 
+          if (ctx && ctx.state === 'suspended') ctx.resume();
+          setIsAmbientStarted(true);
+        }
+      }}>
+        <BreathCanvas status="silent" overrideConfig={overrideConfig} />
+        <div className="onboarding-content">
+          <p className="onboarding-text">{errorMsg || text}</p>
+          {subtext && <p className="onboarding-subtext">{subtext}</p>}
+        </div>
+        {(onboardingStep === 'ambient' || onboardingStep === 'speech') && isAmbientStarted && (
+          <div className="progress-bar">
+            <div className="progress-fill" style={{ width: `${countdown}%` }} />
+          </div>
+        )}
       </div>
-    </div>
+    );
+  }
+
+  if (view === 'insight') {
+    return <InsightView currentSession={currentSession} onBack={() => setView('main')} />;
+  }
+
+  return (
+    <MainView 
+      status={status}
+      currentDb={currentDb}
+      ambientDb={ambientDb}
+      onResetStart={handleResetStart}
+      onResetEnd={handleResetEnd}
+      onNavigateToInsight={() => setView('insight')}
+      sessionSeconds={currentSession?.samples?.length || 0}
+    />
   );
 }
