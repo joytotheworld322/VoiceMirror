@@ -27,7 +27,8 @@ export function useSessionRecorder(currentDb, status, ambientDb, isActive = true
     const voicedSamples = session.samples.filter(s => s.state !== 'silent');
     const voicedDuration = voicedSamples.length;
 
-    if (voicedDuration >= 30 && totalDuration >= 60) {
+    // Lowered threshold for easier data accumulation (Total 20s+, Speech 5s+)
+    if (voicedDuration >= 5 && totalDuration >= 20) {
       const existingSessions = JSON.parse(localStorage.getItem('vm_sessions') || '[]');
       const newSession = {
         id: session.id,
@@ -123,11 +124,16 @@ export function useSessionRecorder(currentDb, status, ambientDb, isActive = true
       }
     };
     const handleBeforeUnload = () => endSession();
+    const handlePageHide = () => endSession();
+
     window.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handlePageHide);
+
     return () => {
       window.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handlePageHide);
     };
   }, []);
 

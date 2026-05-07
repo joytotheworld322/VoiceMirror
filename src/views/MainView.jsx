@@ -16,7 +16,7 @@ export default function MainView({
   }, []);
 
   // Show insight if there's at least 1 saved session OR if current session reached minimum duration
-  const showInsight = hasSessions || sessionSeconds >= 10;
+  const showInsight = true;
   
   const bg = STATE_CONFIG[status]?.bg ?? '#0e0e0e';
   const relativeDb = Math.max(0, Math.round(currentDb) - ambientDb);

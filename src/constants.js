@@ -28,7 +28,7 @@ export const LOCAL_STORAGE_KEYS = {
 };
 
 export const AMBIENT_ALPHA = 0.005;   // EMA update speed (lower is slower)
-export const SPEAKER_OFFSET = 15;      // dB difference to be recognized as speaking
+export const SPEAKER_OFFSET = 10;      // dB difference to be recognized as speaking
 export const VOICE_RATIO_MIN = 0.4;    // Minimum frequency energy ratio for human voice
 
 export const STATE_CONFIG = {

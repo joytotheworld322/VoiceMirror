@@ -150,8 +150,8 @@ export default function InsightView({ currentSession, onBack }) {
           <button className="back-button-text" onClick={onBack}>BACK</button>
         </header>
         <div className="empty-state">
-          <p>아직 분석할 데이터가 부족해요.</p>
-          <p className="sub">10초 이상 더 발화해 보세요.</p>
+          <p>아직 분석할 데이터가 충분하지 않아요.</p>
+          <p className="sub">최소 20초 이상의 모니터링과<br/>5초 이상의 발화 데이터가 쌓이길 기다려주세요.</p>
         </div>
       </div>
     );

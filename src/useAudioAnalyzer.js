@@ -64,7 +64,7 @@ export function useAudioAnalyzer(personalizedLevels = null, sessionComfortLevel 
         const sampleRate = audioContext.sampleRate;
         const binHz = sampleRate / analyser.fftSize;
         const voiceLow = Math.floor(85 / binHz);
-        const voiceHigh = Math.ceil(3000 / binHz);
+        const voiceHigh = Math.ceil(4000 / binHz);
 
         function update() {
           analyser.getByteFrequencyData(dataArray);
@@ -93,8 +93,10 @@ export function useAudioAnalyzer(personalizedLevels = null, sessionComfortLevel 
             const curAmbient = ambientRef.current;
             const isSpeaking = db > curAmbient + SPEAKER_OFFSET;
 
-            // Ambient update only if NOT speaking
-            if (!isSpeaking) {
+            // Ambient update logic for voice-like frames:
+            // Only update if the sound is QUIETER than current ambient.
+            // This prevents speech from raising the ambient floor while allowing it to drop if environment gets quieter.
+            if (db < curAmbient) {
               ambientRef.current = AMBIENT_ALPHA * db + (1 - AMBIENT_ALPHA) * curAmbient;
               setAmbientDb(Math.round(ambientRef.current));
             }
