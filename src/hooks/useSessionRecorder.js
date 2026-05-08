@@ -5,7 +5,7 @@ import { saveSession } from '../lib/sessionService';
 
 const mean = (arr) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
 
-export function useSessionRecorder(currentDb, status, ambientDb, isActive = true, userId = null) {
+export function useSessionRecorder(currentDb, status, ambientDb, isActive = true, userId = null, userComfortLevel = null) {
   const sessionRef = useRef({
     id: Date.now(),
     startedAt: new Date().toISOString(),
@@ -52,7 +52,7 @@ export function useSessionRecorder(currentDb, status, ambientDb, isActive = true
           duration: totalDuration
         });
 
-        const onboardingComfort = parseFloat(localStorage.getItem(LOCAL_STORAGE_KEYS.COMFORTABLE_LEVEL) || '70');
+        const onboardingComfort = userComfortLevel || parseFloat(localStorage.getItem(LOCAL_STORAGE_KEYS.COMFORTABLE_LEVEL) || '70');
 
         const sessionData = {
           startedAt:           session.startedAt,

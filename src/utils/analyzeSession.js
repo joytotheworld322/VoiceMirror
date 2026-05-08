@@ -30,8 +30,20 @@ export function analyzeSession(session) {
 
   const { samples, ambientFloor, duration, startedAt } = session;
   
-  const total = samples.length;
-  const stateCounts = samples.reduce((acc, s) => {
+  // [호환성 처리] 샘플이 객체가 아닌 숫자라면 임시 객체로 변환
+  const normalizedSamples = samples.map(s => {
+    if (typeof s === 'number') {
+      // 과거 데이터는 상태 정보가 없으므로 음량 기준으로 대략적 판정
+      let state = 'silent';
+      if (s > (ambientFloor + 8)) state = 'good';
+      if (s >= 85) state = 'danger';
+      return { db: s, state };
+    }
+    return s;
+  });
+
+  const total = normalizedSamples.length;
+  const stateCounts = normalizedSamples.reduce((acc, s) => {
     acc[s.state] = (acc[s.state] || 0) + 1;
     return acc;
   }, {});
@@ -43,36 +55,32 @@ export function analyzeSession(session) {
     danger: (stateCounts.danger || 0) / total,
   };
 
-  const voicedSamples = samples.filter(s => s && s.state !== 'silent').map(s => s.db);
+  const voicedSamples = normalizedSamples.filter(s => s && s.state !== 'silent').map(s => s.db);
   const avgVoicedDb = mean(voicedSamples);
   const lombardRatio = avgVoicedDb > 0 ? Math.max(0, avgVoicedDb - ambientFloor) : 0;
   
-  // Revised Vocal Load: State is danger AND dB >= 85
-  const vocalLoadSeconds = samples.filter(s => s.state === 'danger' && s.db >= VOCAL_STRAIN_ABS).length;
-  
+  const vocalLoadSeconds = normalizedSamples.filter(s => s.state === 'danger' && s.db >= VOCAL_STRAIN_ABS).length;
   const vocalVariability = stdDev(voicedSamples);
 
-  // First half vs Second half comparison
-  const halfIdx = Math.floor(samples.length / 2);
-  const firstHalfSamples = samples.slice(0, halfIdx);
-  const secondHalfSamples = samples.slice(halfIdx);
-  
+  const halfIdx = Math.floor(normalizedSamples.length / 2);
+  const firstHalfSamples = normalizedSamples.slice(0, halfIdx);
+  const secondHalfSamples = normalizedSamples.slice(halfIdx);
   const firstHalfVoiced = firstHalfSamples.filter(s => s && s.state !== 'silent').map(s => s.db);
   const secondHalfVoiced = secondHalfSamples.filter(s => s && s.state !== 'silent').map(s => s.db);
   
   const firstHalfAvg = mean(firstHalfVoiced);
   const secondHalfAvg = mean(secondHalfVoiced);
 
-  // Dominant states for coloring
   const getCounts = (list) => list.reduce((acc, s) => {
     acc[s.state] = (acc[s.state] || 0) + 1;
     return acc;
   }, {});
 
-  // Environment level
   let ambientLevel = "normal";
-  if (ambientFloor < 45) ambientLevel = "quiet";
-  else if (ambientFloor > 60) ambientLevel = "loud";
+  if (ambientFloor < 40) ambientLevel = "quiet";
+  else if (ambientFloor < 55) ambientLevel = "normal";
+  else if (ambientFloor < 65) ambientLevel = "somewhat_loud";
+  else ambientLevel = "loud";
 
   return {
     id: session.id,
@@ -81,7 +89,7 @@ export function analyzeSession(session) {
     lombardRatio,
     vocalLoadSeconds,
     vocalVariability,
-    duration,
+    duration: duration || total,
     startedAt,
     ambientFloor,
     halfStats: {

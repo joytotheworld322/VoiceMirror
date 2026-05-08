@@ -53,7 +53,7 @@ export async function getSessionCount(userId) {
   return count;
 }
 
-// 모든 세션 삭제
+// 세션 전체 삭제
 export async function deleteAllSessions(userId) {
   const { error } = await supabase
     .from('sessions')

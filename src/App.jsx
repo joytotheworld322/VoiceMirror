@@ -1,299 +1,288 @@
-import { useRef, useEffect, useState, useMemo } from 'react';
-import './App.css';
-import { useAudioAnalyzer } from './useAudioAnalyzer';
-import { LOCAL_STORAGE_KEYS, ONBOARDING_VOICE_MIN } from './constants';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { supabase } from './lib/supabase';
+import { getUserProfile } from './lib/userService';
+import { saveSession } from './lib/sessionService';
+import { analyzeSession } from './utils/analyzeSession';
+import useAudioAnalyzer from './useAudioAnalyzer';
+import LandingView from './views/LandingView';
+import OnboardingNickname from './views/OnboardingNickname';
+import OnboardingAmbient from './views/OnboardingAmbient';
+import OnboardingVoice from './views/OnboardingVoice';
 import MainView from './views/MainView';
-import InsightView from './views/InsightView';
 import SettingsView from './views/SettingsView';
-import BreathCanvas from './components/BreathCanvas';
-import { useSessionRecorder } from './hooks/useSessionRecorder';
-import { getOrCreateUser } from './lib/userService';
+import InsightView from './views/InsightView';
+import './App.css';
 
-export default function App() {
-  const [view, setView] = useState('main'); // main | insight | settings
-  const [user, setUser] = useState(null);
-  const [loadingUser, setLoadingUser] = useState(true);
+// 세션 저장 최소 조건
+const MIN_SESSION_DURATION = 60;   // 전체 세션 길이 >= 60초
+const MIN_SPEECH_DURATION   = 30;  // 발화 감지 시간 >= 30초
 
-  const [onboardingStep, setOnboardingStep] = useState(() => {
-    if (!localStorage.getItem(LOCAL_STORAGE_KEYS.NICKNAME)) return 'nickname';
-    if (!localStorage.getItem(LOCAL_STORAGE_KEYS.ONBOARDING_COMPLETE)) return 'ambient';
-    return 'ambient'; // Always run ambient check on launch
-  });
+function App() {
+  const [session, setSession]               = useState(null);
+  const [profile, setProfile]               = useState(null);
+  const [loading, setLoading]               = useState(true);
+  const [view, setView]                     = useState('main');
+  const [onboardingStep, setOnboardingStep] = useState(null);
+  const [tempAmbient, setTempAmbient]       = useState(null);
+  const [isDailyAmbientDone, setIsDailyAmbientDone] = useState(false);
+  const [currentSession, setCurrentSession] = useState(null);
 
-  const [isAmbientStarted, setIsAmbientStarted] = useState(false);
-  const [onboardingData, setOnboardingData] = useState({
-    ambientBaseline: null,
-    comfortableLevel: null,
-  });
-  const [countdown, setCountdown] = useState(0);
-  const [errorMsg, setErrorMsg] = useState(null);
-  const [nicknameInput, setNicknameInput] = useState('');
+  // 세션 데이터를 ref에도 병렬 저장 → beforeunload에서 최신값 참조용
+  const currentSessionRef = useRef(null);
+  const bgTimerRef        = useRef(null);
+  const userIdRef         = useRef(null);
+  const profileRef        = useRef(null);
 
-  // User Initialization
+  // ── 1. Auth 세션 관리 ──────────────────────────────────────
   useEffect(() => {
-    async function initUser() {
-      const nickname = localStorage.getItem(LOCAL_STORAGE_KEYS.NICKNAME);
-      if (nickname) {
-        try {
-          const u = await getOrCreateUser(nickname);
-          setUser(u);
-        } catch (e) {
-          console.error('유저 초기화 실패:', e);
-        }
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (!session) {
+        setProfile(null);
+        setIsDailyAmbientDone(false);
+        setOnboardingStep(null);
+        setLoading(false);
+        setCurrentSession(null);
+        currentSessionRef.current = null;
       }
-      setLoadingUser(false);
-    }
-    initUser();
+    });
+    return () => subscription.unsubscribe();
   }, []);
 
+  // ── 2. 프로필 로딩 ────────────────────────────────────────
+  const loadProfile = useCallback(async (uid) => {
+    try {
+      const data = await getUserProfile(uid);
+      setProfile(data);
+      profileRef.current = data;
+    } catch (err) {
+      console.error('Profile load error:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (session?.user?.id) {
+      userIdRef.current = session.user.id;
+      loadProfile(session.user.id);
+    }
+  }, [session]);
+
+  // ── 3. 온보딩 단계 결정 ───────────────────────────────────
+  useEffect(() => {
+    if (loading || !session) return;
+    if (profile && !profile.nickname) { setOnboardingStep('nickname'); return; }
+    if (!isDailyAmbientDone && onboardingStep !== 'voice') { setOnboardingStep('ambient'); return; }
+    if (profile && profile.comfortable_level === null && onboardingStep !== 'voice') { setOnboardingStep('voice'); return; }
+  }, [profile, isDailyAmbientDone, loading, session]);
+
+  // ── 4. personalizedLevels ────────────────────────────────
   const personalizedLevels = useMemo(() => {
-    if (onboardingStep !== null) return null;
-    const ambient = localStorage.getItem(LOCAL_STORAGE_KEYS.AMBIENT_BASELINE);
-    const comfort = localStorage.getItem(LOCAL_STORAGE_KEYS.COMFORTABLE_LEVEL);
-    if (ambient && comfort) {
-      return {
-        ambientBaseline: parseFloat(ambient),
-        comfortableLevel: parseFloat(comfort),
+    if (onboardingStep !== null || !profile) return null;
+    const base = tempAmbient || profile.ambient_baseline || 40;
+    return { ambient: base, comfortable: profile.comfortable_level || (base + 15) };
+  }, [profile, onboardingStep, tempAmbient]);
+
+  const { status, currentDb, ambientDb, isVoiceLike } = useAudioAnalyzer(personalizedLevels);
+
+  // 실시간 오디오 값 추적용 Ref (타이머 리셋 방지)
+  const liveAudioRef = useRef({ db: 40, status: 'silent', ambient: 40 });
+
+  useEffect(() => {
+    liveAudioRef.current = { db: currentDb, status, ambient: ambientDb };
+  }, [currentDb, status, ambientDb]);
+
+  // ── 5. 실시간 세션 샘플 수집 (MainView 활성 시만) ────────
+  useEffect(() => {
+    if (view !== 'main' || onboardingStep !== null || !session) return;
+
+    if (!currentSession) {
+      const newSession = {
+        samples: [],
+        startedAt: new Date().toISOString(),
+        ambientTotal: 0,
+        ambientCount: 0,
       };
+      setCurrentSession(newSession);
+      currentSessionRef.current = newSession;
     }
-    return null;
-  }, [onboardingStep]);
 
-  const [bridgeComfortLevel, setBridgeComfortLevel] = useState(null);
+    const interval = setInterval(() => {
+      const { db, status, ambient } = liveAudioRef.current;
+      setCurrentSession(prev => {
+        if (!prev) return prev;
+        const next = {
+          ...prev,
+          samples: [...prev.samples, { db, state: status }],
+          ambientTotal: prev.ambientTotal + ambient,
+          ambientCount: prev.ambientCount + 1,
+        };
+        currentSessionRef.current = next;
+        return next;
+      });
+    }, 1000);
 
-  const { status, currentDb, ambientDb, permissionState, isVoiceLike } = useAudioAnalyzer(personalizedLevels, bridgeComfortLevel);
-  
-  const { currentSession, sessionComfortLevel } = useSessionRecorder(
-    currentDb, 
-    status, 
-    ambientDb, 
-    onboardingStep === null && view === 'main',
-    user?.id
-  );
+    return () => clearInterval(interval);
+  }, [view, onboardingStep, !!session]); // 오디오 값 변화에는 리셋되지 않음
 
-  useEffect(() => {
-    if (sessionComfortLevel !== bridgeComfortLevel) {
-      setBridgeComfortLevel(sessionComfortLevel);
+  // ── 6. 세션 저장 함수 ────────────────────────────────────
+  const trySaveSession = useCallback(async (sessionData) => {
+    const uid = userIdRef.current;
+    if (!uid || !sessionData) return;
+
+    const totalSeconds    = sessionData.samples.length; // 1샘플=1초
+    const speechSeconds   = sessionData.samples.filter(s => s.state !== 'silent').length;
+
+    // 저장 조건 검사
+    if (totalSeconds < MIN_SESSION_DURATION || speechSeconds < MIN_SPEECH_DURATION) {
+      console.log(`세션 저장 스킵 — 전체:${totalSeconds}s 발화:${speechSeconds}s`);
+      return;
     }
-  }, [sessionComfortLevel]);
 
-  const latestDbRef = useRef(currentDb);
-  useEffect(() => {
-    latestDbRef.current = currentDb;
-  }, [currentDb]);
+    const analysis = analyzeSession({
+      ...sessionData,
+      duration: totalSeconds,
+      ambientFloor: sessionData.ambientCount > 0
+        ? sessionData.ambientTotal / sessionData.ambientCount : 40,
+    });
 
-  const latestVoiceLikeRef = useRef(isVoiceLike);
-  useEffect(() => {
-    latestVoiceLikeRef.current = isVoiceLike;
-  }, [isVoiceLike]);
+    try {
+      await saveSession(uid, {
+        startedAt:           sessionData.startedAt,
+        duration:            totalSeconds,
+        ambientAnchor:       analysis.ambientFloor,
+        comfortableLevel:    profileRef.current?.comfortable_level || null,
+        sessionComfortLevel: null,
+        vocalLoadSeconds:    analysis.vocalLoadSeconds,
+        lombardRatio:        analysis.lombardRatio,
+        variability:         analysis.vocalVariability,
+        stateRatio:          analysis.stateRatio,
+        firstHalfAvg:        analysis.halfStats?.firstHalfAvg || null,
+        secondHalfAvg:       analysis.halfStats?.secondHalfAvg || null,
+        samples:             sessionData.samples,
+      });
+      console.log('세션 저장 완료 ✓');
+    } catch (e) {
+      console.error('세션 저장 실패:', e);
+    }
+  }, []);
 
-  // Onboarding sequence
+  // ── 7. 세션 종료 및 강제 저장 처리 ─────────────────────
   useEffect(() => {
-    if (onboardingStep === 'ambient' && isAmbientStarted) {
-      const duration = 5000;
-      const start = Date.now();
-      const samples = [];
-      
-      const interval = setInterval(() => {
-        const elapsed = Date.now() - start;
-        setCountdown(Math.min(100, (elapsed / duration) * 100));
-        samples.push(latestDbRef.current);
-        
-        if (elapsed >= duration) {
-          clearInterval(interval);
-          const avg = samples.reduce((a, b) => a + b, 0) / samples.length;
-          setOnboardingData(prev => ({ ...prev, ambientBaseline: avg }));
-          
-          const savedComfort = localStorage.getItem(LOCAL_STORAGE_KEYS.COMFORTABLE_LEVEL);
-          if (savedComfort) {
-            localStorage.setItem(LOCAL_STORAGE_KEYS.AMBIENT_BASELINE, avg);
-            setOnboardingStep(null);
-          } else {
-            setOnboardingStep('speech');
-          }
+    const handleVisibility = () => {
+      if (document.hidden) {
+        bgTimerRef.current = setTimeout(async () => {
+          const snap = currentSessionRef.current;
+          await trySaveSession(snap);
+          setCurrentSession(null);
+          currentSessionRef.current = null;
+        }, 3 * 60 * 1000); // 테스트 편의를 위해 3분으로 단축
+      } else {
+        if (bgTimerRef.current) {
+          clearTimeout(bgTimerRef.current);
+          bgTimerRef.current = null;
         }
-      }, 50);
-      return () => clearInterval(interval);
-    }
-
-    if (onboardingStep === 'speech') {
-      const duration = 10000;
-      const start = Date.now();
-      const speechSamples = [];
-      setCountdown(0);
-      setErrorMsg(null);
-      
-      const interval = setInterval(() => {
-        const elapsed = Date.now() - start;
-        setCountdown(Math.min(100, (elapsed / duration) * 100));
-        
-        const db = latestDbRef.current;
-        const voiceLike = latestVoiceLikeRef.current;
-        if (db > ONBOARDING_VOICE_MIN && voiceLike) {
-          speechSamples.push(db);
-        }
-        
-        if (elapsed >= duration) {
-          clearInterval(interval);
-          if (speechSamples.length < 60) {
-            setErrorMsg('발화가 너무 짧아요. 다시 시도해주세요.');
-            setTimeout(() => {
-              setOnboardingStep('speech_retry');
-            }, 1500);
-          } else {
-            const avg = speechSamples.reduce((a, b) => a + b, 0) / speechSamples.length;
-            setOnboardingData(prev => ({ ...prev, comfortableLevel: avg }));
-            setOnboardingStep('complete');
-          }
-        }
-      }, 50);
-      return () => clearInterval(interval);
-    }
-
-    if (onboardingStep === 'speech_retry') {
-      setOnboardingStep('speech');
-    }
-
-    if (onboardingStep === 'complete') {
-      localStorage.setItem(LOCAL_STORAGE_KEYS.AMBIENT_BASELINE, onboardingData.ambientBaseline);
-      localStorage.setItem(LOCAL_STORAGE_KEYS.COMFORTABLE_LEVEL, onboardingData.comfortableLevel);
-      localStorage.setItem(LOCAL_STORAGE_KEYS.ONBOARDING_COMPLETE, 'true');
-      
-      async function finalInit() {
-        const nickname = localStorage.getItem(LOCAL_STORAGE_KEYS.NICKNAME);
-        const u = await getOrCreateUser(nickname);
-        setUser(u);
-        setOnboardingStep(null);
       }
-      finalInit();
-    }
-  }, [onboardingStep, onboardingData.ambientBaseline, isAmbientStarted]);
+    };
 
-  const handleNicknameSubmit = (e) => {
-    if (e) e.preventDefault();
-    if (nicknameInput.trim()) {
-      localStorage.setItem(LOCAL_STORAGE_KEYS.NICKNAME, nicknameInput.trim());
-      setOnboardingStep('ambient');
-    }
-  };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [trySaveSession]);
 
-  if (permissionState === 'denied') {
+  // ── 8. 세션 종료 조건 B — 앱 완전 종료 (beforeunload) ───
+  useEffect(() => {
+    const handleUnload = () => {
+      const snap = currentSessionRef.current;
+      if (!snap || snap.samples.length < MIN_SESSION_DURATION) return;
+      const speechSeconds = snap.samples.filter(s => s.state !== 'silent').length;
+      if (speechSeconds < MIN_SPEECH_DURATION) return;
+
+      // navigator.sendBeacon으로 비동기 전송 (beforeunload에서 fetch 불가)
+      const uid = userIdRef.current;
+      if (!uid) return;
+      const payload = JSON.stringify({ userId: uid, session: snap });
+      navigator.sendBeacon('/api/save-session', payload);
+    };
+    window.addEventListener('beforeunload', handleUnload);
+    return () => window.removeEventListener('beforeunload', handleUnload);
+  }, []);
+
+  // ─────────────────────────────────────────────────────────
+  if (loading) return <div className="loading-screen">VOICEMIRROR</div>;
+
+  if (!session) {
+    return <LandingView onLogin={() => supabase.auth.signInWithOAuth({ provider: 'google' })} />;
+  }
+
+  if (onboardingStep === 'nickname') {
+    return <OnboardingNickname userId={session.user.id} onComplete={() => loadProfile(session.user.id)} />;
+  }
+  if (onboardingStep === 'ambient') {
     return (
-      <div className="denied-screen">
-        <p className="denied-title">마이크 권한이 필요해요</p>
-        <p className="denied-desc">
-          브라우저 설정에서 이 사이트의 마이크 접근을 허용한 뒤 새로고침해 주세요.
-        </p>
-      </div>
+      <OnboardingAmbient
+        userId={session.user.id}
+        currentDb={currentDb}
+        onComplete={(measuredAmbient) => {
+          setTempAmbient(measuredAmbient);
+          setIsDailyAmbientDone(true);
+          setOnboardingStep(null);
+        }}
+      />
+    );
+  }
+  if (onboardingStep === 'voice') {
+    return (
+      <OnboardingVoice
+        userId={session.user.id}
+        currentDb={currentDb}
+        ambientDb={tempAmbient || 40}
+        isVoiceLike={isVoiceLike}
+        onBack={() => setOnboardingStep(null)}
+        onComplete={() => { setOnboardingStep(null); loadProfile(session.user.id); }}
+      />
     );
   }
 
-  // Loading Splash
-  if (loadingUser && onboardingStep === null) {
-    return (
-      <div className="app loading-splash">
-        <BreathCanvas status="silent" />
-      </div>
-    );
-  }
-
-  // Onboarding UI
-  if (onboardingStep !== null) {
-    if (onboardingStep === 'nickname') {
-      return (
-        <div className="app onboarding-step0">
-          <div className="nickname-step">
-            <p className="onboarding-guide">당신을 어떻게 부를까요?</p>
-            <form onSubmit={handleNicknameSubmit}>
-              <input 
-                type="text" 
-                className="nickname-input"
-                placeholder="이름 또는 닉네임"
-                maxLength={10}
-                autoFocus
-                value={nicknameInput}
-                onChange={(e) => setNicknameInput(e.target.value)}
-              />
-              <button 
-                type="submit" 
-                className="nickname-submit"
-                style={{ opacity: nicknameInput.trim() ? 1 : 0.4 }}
-              >
-                →
-              </button>
-            </form>
-          </div>
-        </div>
-      );
-    }
-
-    let text = "";
-    let subtext = "";
-    let overrideConfig = null;
-
-    if (onboardingStep === 'ambient') {
-      text = isAmbientStarted 
-        ? "주변 소리만 있는 상태로\n5초간 기다려주세요."
-        : "탭하여 주변 소음 측정을\n시작하세요.";
-      overrideConfig = { color: [0x2a, 0x2a, 0x2a], baseRadius: 12 };
-    } else if (onboardingStep === 'speech') {
-      text = "지금처럼 편하게\n말해보세요. (10초)";
-      subtext = '"오늘 날씨가 참 좋네요. 주변 사람들과 즐겁게 대화하며 기분 좋은 하루를 보내고 있어요."';
-      overrideConfig = { color: [0x4a, 0xdf, 0x84], baseRadius: 38 };
-    } else if (onboardingStep === 'complete') {
-      text = "준비됐어요.";
-      overrideConfig = { color: [0x4a, 0xdf, 0x84], baseRadius: 60 };
-    }
-
-    return (
-      <div className="app onboarding" onClick={() => {
-        if (onboardingStep === 'ambient' && !isAmbientStarted) {
-          const ctx = window.audioContextInstance; 
-          if (ctx && ctx.state === 'suspended') ctx.resume();
-          setIsAmbientStarted(true);
-        }
-      }}>
-        <BreathCanvas status="silent" overrideConfig={overrideConfig} />
-        <div className="onboarding-content">
-          <p className="onboarding-text">{errorMsg || text}</p>
-          {subtext && <p className="onboarding-subtext">{subtext}</p>}
-        </div>
-        {(onboardingStep === 'ambient' || onboardingStep === 'speech') && isAmbientStarted && (
-          <div className="progress-bar">
-            <div className="progress-fill" style={{ width: `${countdown}%` }} />
-          </div>
-        )}
-      </div>
-    );
-  }
-
+  // ── Insight 탭: 세션 일시정지 (종료 아님) ────────────────
   if (view === 'insight') {
-    return <InsightView userId={user?.id} onBack={() => setView('main')} onSettings={() => setView('settings')} />;
+    return (
+      <InsightView
+        userId={session.user.id}
+        currentSession={currentSession}  // 현재 세션 데이터 그대로 전달
+        onBack={() => setView('main')}   // 복귀 시 같은 세션 계속
+      />
+    );
   }
 
   if (view === 'settings') {
     return (
-      <SettingsView 
-        user={user} 
-        onBack={() => setView('main')} // Fixed: go back to main
-        onNicknameUpdate={(newNick) => setUser(prev => ({ ...prev, nickname: newNick }))}
-        onRecalibrate={() => {
-          setOnboardingStep('speech');
-          setView('main');
-        }}
+      <SettingsView
+        user={session.user}
+        profile={profile}
+        onBack={() => setView('main')}
+        onLogout={() => supabase.auth.signOut()}
+        onProfileUpdate={() => loadProfile(session.user.id)}
+        onRecalibrate={() => setOnboardingStep('voice')}
       />
     );
   }
 
   return (
-    <MainView 
+    <MainView
       status={status}
       currentDb={currentDb}
       ambientDb={ambientDb}
-      userId={user?.id}
+      user={profile}
       onNavigateToInsight={() => setView('insight')}
       onSettings={() => setView('settings')}
-      sessionSeconds={currentSession?.samples?.length || 0}
     />
   );
 }
+
+export default App;

@@ -9,7 +9,7 @@ import {
   DEBUG_MODE 
 } from './constants';
 
-export function useAudioAnalyzer(personalizedLevels = null, sessionComfortLevel = null) {
+export default function useAudioAnalyzer(personalizedLevels = null, sessionComfortLevel = null, enabled = true) {
   const [status, setStatus] = useState('silent');
   const [currentDb, setCurrentDb] = useState(0);
   const [ambientDb, setAmbientDb] = useState(40);
@@ -18,14 +18,23 @@ export function useAudioAnalyzer(personalizedLevels = null, sessionComfortLevel 
 
   const latestDbRef = useRef(0);
   const ambientRef = useRef(40);
-  const personalizedRef = useRef(personalizedLevels);
+  const config = useRef({
+    ambient: personalizedLevels?.ambient || 40,
+    comfortable: personalizedLevels?.comfortable || 55
+  });
   const sessionComfortRef = useRef(sessionComfortLevel);
 
+  // [지능형 보정] 장시간 지속되는 소음을 감지하기 위한 레퍼런스
+  const noiseFloorTimerRef = useRef(0);
+
   useEffect(() => {
-    personalizedRef.current = personalizedLevels;
     if (personalizedLevels) {
-      ambientRef.current = personalizedLevels.ambientBaseline;
-      setAmbientDb(Math.round(personalizedLevels.ambientBaseline));
+      config.current = {
+        ambient: personalizedLevels.ambient ?? 40,
+        comfortable: personalizedLevels.comfortable ?? 55
+      };
+      ambientRef.current = config.current.ambient;
+      setAmbientDb(Math.round(ambientRef.current));
     }
   }, [personalizedLevels]);
 
@@ -40,6 +49,8 @@ export function useAudioAnalyzer(personalizedLevels = null, sessionComfortLevel 
   }, []);
 
   useEffect(() => {
+    if (!enabled) return;
+
     let audioContext;
     let analyser;
     let stream;
@@ -82,72 +93,59 @@ export function useAudioAnalyzer(personalizedLevels = null, sessionComfortLevel 
           setCurrentDb(db);
           latestDbRef.current = db;
 
-          // Frequency Analysis
           const voiceEnergy = dataArray.slice(voiceLow, voiceHigh).reduce((a, b) => a + b, 0);
           const totalEnergy = dataArray.reduce((a, b) => a + b, 0);
           const voiceRatio = totalEnergy > 0 ? voiceEnergy / totalEnergy : 0;
-          const isVoiceLike = voiceRatio >= VOICE_RATIO_MIN;
+          
+          // 목소리 여부 판정 (최소 음량 게이트 포함)
+          const isVoiceLikeResult = db > 42 && voiceRatio >= VOICE_RATIO_MIN;
 
           let nextStatus = 'silent';
+          const curAmbient = ambientRef.current;
 
-          if (isVoiceLike) {
-            const curAmbient = ambientRef.current;
-            const isSpeaking = db > curAmbient + SPEAKER_OFFSET;
+          if (isVoiceLikeResult) {
+            const relative = db - curAmbient;
+            const levels = config.current;
+            const sComfort = sessionComfortRef.current;
+            
+            const effectiveComfortGap = sComfort 
+              ? (sComfort - curAmbient) 
+              : (levels ? (levels.comfortable - levels.ambient) : 0);
 
-            // Ambient update logic for voice-like frames:
-            // Only update if the sound is QUIETER than current ambient.
-            // This prevents speech from raising the ambient floor while allowing it to drop if environment gets quieter.
+            // [자동 보정 로직 1] 목소리로 판정되었지만 현재 소음 기준점보다 작다면 즉시 하향 조정
             if (db < curAmbient) {
-              ambientRef.current = AMBIENT_ALPHA * db + (1 - AMBIENT_ALPHA) * curAmbient;
+              ambientRef.current = 0.1 * db + 0.9 * curAmbient; // 빠른 추적
               setAmbientDb(Math.round(ambientRef.current));
             }
 
-            const relative = db - curAmbient;
-            const levels = personalizedRef.current;
-            const sComfort = sessionComfortRef.current;
-            
-            // Determine Gap: Use session recalibration if available, else onboarding
-            const effectiveComfortGap = sComfort 
-              ? (sComfort - curAmbient) 
-              : (levels ? (levels.comfortableLevel - levels.ambientBaseline) : 0);
-
-            if (effectiveComfortGap > 10) { // Relative mode
+            if (effectiveComfortGap > 10) {
               const ratio = relative / effectiveComfortGap;
               if (ratio < RATIO.SILENT_MAX) nextStatus = 'silent';
               else if (ratio <= RATIO.GOOD_MAX) nextStatus = 'good';
               else if (ratio <= RATIO.LOUD_MAX) nextStatus = 'loud';
               else nextStatus = 'danger';
-            } else { // Fallback: Absolute mode
+            } else {
               if (db < THRESHOLDS.SILENCE) nextStatus = 'silent';
               else if (db < THRESHOLDS.GOOD_MAX) nextStatus = 'good';
               else if (db < THRESHOLDS.LOUD_MAX) nextStatus = 'loud';
               else nextStatus = 'danger';
             }
-
-            if (DEBUG_MODE && Math.random() < 0.05) { // Log sampled frames
-              console.log({
-                currentDb: db.toFixed(1),
-                ambientFloor: curAmbient.toFixed(1),
-                relative: relative.toFixed(1),
-                effectiveComfortGap: effectiveComfortGap.toFixed(1),
-                ratio: effectiveComfortGap > 10 ? (relative / effectiveComfortGap).toFixed(2) : 'fallback',
-                voiceRatio: voiceRatio.toFixed(2),
-                isVoiceLike,
-                isSpeaking,
-                sessionComfort: sComfort?.toFixed(1) ?? 'not set',
-                state: nextStatus,
-              });
-            }
+            
+            noiseFloorTimerRef.current = 0; // 목소리가 들리면 소음 추적 타이머 초기화
           } else {
-            // Force silent if not voice-like
             nextStatus = 'silent';
-            // Ambient still updates when silent
-            const curAmbient = ambientRef.current;
-            ambientRef.current = AMBIENT_ALPHA * db + (1 - AMBIENT_ALPHA) * curAmbient;
-            setAmbientDb(Math.round(ambientRef.current));
+            
+            // [자동 보정 로직 2] 배경 소음 추적 (상향/하향 모두 대응)
+            // 목소리가 아닐 때, 현재 dB가 기준점과 차이가 나면 서서히 흡수
+            const diff = Math.abs(db - curAmbient);
+            if (diff > 0.5) {
+              // AMBIENT_ALPHA를 사용하여 노이즈 플로어를 서서히 업데이트
+              ambientRef.current = AMBIENT_ALPHA * db + (1 - AMBIENT_ALPHA) * curAmbient;
+              setAmbientDb(Math.round(ambientRef.current));
+            }
           }
 
-          setIsVoiceLike(isVoiceLike);
+          setIsVoiceLike(isVoiceLikeResult);
           setStatus(nextStatus);
           rafId = requestAnimationFrame(update);
         }
@@ -166,7 +164,7 @@ export function useAudioAnalyzer(personalizedLevels = null, sessionComfortLevel 
       if (stream) stream.getTracks().forEach(t => t.stop());
       if (audioContext) audioContext.close();
     };
-  }, []);
+  }, [enabled]);
 
   return { status, currentDb, ambientDb, permissionState, triggerHaptic, isVoiceLike };
 }

@@ -1,6 +1,7 @@
 export async function generateFeedback(sessionAnalysis, patternAnalysis, rawSession = null) {
-  const voicedPercent = ((1 - sessionAnalysis.stateRatio.silent) * 100).toFixed(0);
-  const hasPattern = !patternAnalysis.insufficient;
+  const silentRatio = sessionAnalysis.stateRatio?.silent ?? 1;
+  const voicedPercent = ((1 - silentRatio) * 100).toFixed(0);
+  const hasPattern = patternAnalysis && !patternAnalysis.insufficient;
   const nickname = localStorage.getItem('vm_nickname') || '';
   
   const halfDiff = sessionAnalysis.halfStats?.halfDiff || 0;
@@ -9,54 +10,56 @@ export async function generateFeedback(sessionAnalysis, patternAnalysis, rawSess
     normal: "보통 환경",
     loud: "시끄러운 환경"
   };
-  const ambientLevel = ambientLevelMap[sessionAnalysis.ambientLevel];
+  const ambientLevel = ambientLevelMap[sessionAnalysis.ambientLevel] || "보통 환경";
   const usedRecal = (rawSession?.sessionComfortLevel || sessionAnalysis.sessionComfortLevel) !== null;
 
+  const vocalLoad = sessionAnalysis.vocalLoadSeconds || 0;
+  const lombard = sessionAnalysis.lombardRatio || 0;
+  const variability = sessionAnalysis.vocalVariability || 0;
+  
   const userPrompt = `${nickname ? `사용자 이름: ${nickname}\n` : ''}
 오늘 세션 정보:
 - 발화 비율: ${voicedPercent}%
-- 성대 주의 구간: ${sessionAnalysis.vocalLoadSeconds}초
-- 소음 대비 목소리 상승폭: ${sessionAnalysis.lombardRatio.toFixed(1)}
-- 목소리 변동성: ${sessionAnalysis.vocalVariability.toFixed(1)}
+- 성대 주의 구간: ${vocalLoad}초
+- 소음 대비 목소리 상승폭: ${lombard.toFixed(1)}
+- 목소리 변동성: ${variability.toFixed(1)}
 - 세션 전반 대비 후반 볼륨 변화: ${halfDiff > 0 ? '+' : ''}${halfDiff.toFixed(1)}dB
-- 오늘 환경: ${ambientLevel}
-- 오늘 기준: ${usedRecal ? '당일 재보정 적용' : '온보딩 기준 사용'}
-${hasPattern ? `\n최근 패턴:\n- 성대 부하 추세: ${patternAnalysis.vocalLoadTrend.join(', ')}초` : '(패턴 데이터 부족, 단일 세션 기반으로만 피드백)'}`;
+- 오늘 환경: ${ambientLevel}`;
 
-  const systemPrompt = `당신은 발화 데이터를 분석해서 사용자에게 실용적인 피드백을 주는 코치입니다.
+  const systemPrompt = `당신은 발화 데이터를 분석해서 사용자에게 실용적인 피드백을 주는 코치입니다.`;
 
-규칙:
-1. dB, %, 초 같은 수치를 직접 언급하지 말 것
-2. 은유나 시적 표현을 절대 쓰지 말 것
-3. 관찰한 사실을 구체적이고 명확하게 말할 것
-   좋은 예: '오늘 대화 후반부에 목소리 힘이 많이 들어갔어요.'
-   나쁜 예: '목소리가 공간을 채웠어요.' '출렁이고 있어요.'
-4. 마지막 문장은 사용자가 스스로 돌아볼 수 있는 간단하고 구체적인 질문으로 끝낼 것
-   좋은 예: '오늘 목 상태는 어떤가요?'
-   나쁜 예: '요즘 어떤 대화들을 나누고 계신가요?'
-5. 2~3문장, 한국어, 간결하게
-6. 닉네임이 제공되면 첫 문장에 자연스럽게 포함할 것`;
+  // --- 로컬 분석 로직 (API 실패 시 사용) ---
+  const getLocalFeedback = () => {
+    let msg = nickname ? `${nickname}님, ` : "";
+    
+    if (vocalLoad > 10) {
+      msg += "오늘 성대를 꽤 많이 사용하셨네요. 대화 중간에 물을 자주 마시고 목을 휴식시켜주는 것이 좋겠습니다. ";
+    } else if (lombard > 15) {
+      msg += "주변 소음 때문에 목소리가 평소보다 많이 커졌어요. 목에 무리가 갈 수 있으니 조금 더 조용한 곳에서 대화해보는 건 어떨까요? ";
+    } else if (halfDiff > 5) {
+      msg += "대화가 진행될수록 목소리에 힘이 점점 더 들어가고 있어요. 호흡을 조금 더 깊게 가져가 보세요. ";
+    } else {
+      msg += "전반적으로 목소리를 아주 편안하고 일정하게 유지하고 계시네요! 지금처럼 좋은 습관을 유지해 보세요. ";
+    }
+    
+    msg += "\n\n오늘 목 상태는 어떠신가요?";
+    return msg;
+  };
 
   try {
     const response = await fetch("/api/feedback", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        system: systemPrompt,
-        userPrompt: userPrompt
-      })
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ system: systemPrompt, userPrompt: userPrompt })
     });
 
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
-    }
+    if (!response.ok) throw new Error("API not available");
 
     const data = await response.json();
-    return data.content[0].text;
+    return data.content?.[0]?.text || data.text || getLocalFeedback();
   } catch (error) {
-    console.error("Feedback generation failed:", error);
-    return "오늘 발화 데이터를 살펴보는 중 문제가 생겼어요. 잠시 후 다시 시도해주세요.";
+    console.warn("AI API unavailable, using local analysis:", error);
+    // API 서버가 없거나 에러가 나면 로컬 룰 기반 피드백 반환
+    return getLocalFeedback();
   }
 }
