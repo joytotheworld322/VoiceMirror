@@ -1,9 +1,9 @@
 // Vocal loading thresholds
 // Source: Pearsons et al. (1977), Echternach et al. vocal loading research
 export const THRESHOLDS = {
-  SILENCE:  55,
-  GOOD_MAX: 68,
-  LOUD_MAX: 80,
+  SILENCE:  42,
+  GOOD_MAX: 58,
+  LOUD_MAX: 72,
 };
 
 export const VOCAL_STRAIN_ABS = 85;   // Absolute dB threshold for vocal strain
@@ -29,11 +29,11 @@ export const LOCAL_STORAGE_KEYS = {
 
 export const AMBIENT_ALPHA = 0.005;   // EMA update speed (lower is slower)
 export const SPEAKER_OFFSET = 10;      // dB difference to be recognized as speaking
-export const VOICE_RATIO_MIN = 0.4;    // Minimum frequency energy ratio for human voice
+export const VOICE_RATIO_MIN = 0.5;    // Minimum frequency energy ratio for human voice (숨소리 차단 위해 상향)
 
 export const AMBIENT_ANCHOR_WINDOW = 10;     // Session start anchor measurement time (sec)
 export const AMBIENT_DRIFT_LIMIT   = 10;     // Allowed drift vs anchor (dB)
-export const ONBOARDING_VOICE_MIN = 40;      // Minimum dB for onboarding speech detection
+export const ONBOARDING_VOICE_MIN = 30;      // Minimum dB for onboarding speech detection
 
 export const STATE_CONFIG = {
   silent: { bg: '#0e0e0e', label: 'SILENT' },

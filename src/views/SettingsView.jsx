@@ -4,16 +4,24 @@ import { deleteAllSessions } from '../lib/sessionService';
 import { signOut } from '../lib/authService';
 import { supabase } from '../lib/supabase';
 
-export default function SettingsView({ user, profile, onBack, onRecalibrate }) {
+export default function SettingsView({ user, profile, onBack, onRecalibrate, onProfileUpdate }) {
   const [isEditingNickname, setIsEditingNickname] = useState(false);
   const [nicknameInput, setNicknameInput] = useState(profile?.nickname || '');
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+  
+  // 모바일 확대 방지 및 편집 모드 종료 공통 함수
+  const closeEdit = () => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    setIsEditingNickname(false);
+  };
 
   const handleNicknameSubmit = async (e) => {
     e.preventDefault();
     if (!nicknameInput.trim() || nicknameInput === profile.nickname) {
-      setIsEditingNickname(false);
+      closeEdit();
       return;
     }
     setIsSaving(true);
@@ -23,7 +31,7 @@ export default function SettingsView({ user, profile, onBack, onRecalibrate }) {
       if (onProfileUpdate) onProfileUpdate();
       setTimeout(() => {
         setSaveMessage('');
-        setIsEditingNickname(false);
+        closeEdit();
       }, 1500);
     } catch (e) {
       console.error('닉네임 변경 실패:', e);
@@ -55,80 +63,163 @@ export default function SettingsView({ user, profile, onBack, onRecalibrate }) {
   };
 
   return (
-    <div className="insight-view settings-view" style={{ background: '#0e0e0e', fontFamily: 'Space Mono' }}>
+    <div className="insight-view settings-view" style={{ background: '#0e0e0e' }}>
       <header className="insight-header" style={{ borderBottom: 'none' }}>
-        <button className="back-button-text" onClick={onBack} style={{ color: 'white', fontSize: '18px' }}>←</button>
-        <span className="app-name-small" style={{ letterSpacing: '0.2em' }}>VOICEMIRROR</span>
+        <button className="back-button-text" onClick={onBack} style={{ color: 'white', fontSize: '20px', fontWeight: 'bold' }}>←</button>
+        <div />
       </header>
 
-      <div className="settings-scroll-content" style={{ padding: '0 24px' }}>
-        {/* 계정 섹션 */}
-        <section className="settings-group" style={{ marginTop: 40 }}>
-          <p className="settings-label">계정</p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, marginBottom: 20 }}>
-            <svg width="16" height="16" viewBox="0 0 18 18">
-              <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#4285F4"/>
-              <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#34A853"/>
-              <path d="M3.964 10.71a5.41 5.41 0 0 1-.282-1.71c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
-              <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.443 2.017.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
-            </svg>
-            <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>{user?.email}</span>
-          </div>
+      <div className="settings-scroll-content" style={{ padding: '0 20px 40px' }}>
+        <div style={{ marginTop: 24, marginBottom: 32, paddingLeft: 4 }}>
+          <h2 style={{ fontSize: 24, fontWeight: 700, color: 'white' }}>설정</h2>
+        </div>
 
-          <div className="nickname-row">
-            {isEditingNickname ? (
-              <form onSubmit={handleNicknameSubmit} style={{ display: 'flex', gap: 12 }}>
-                <input 
-                  autoFocus 
-                  value={nicknameInput} 
-                  onChange={e => setNicknameInput(e.target.value)}
-                  className="nickname-edit-input"
-                />
-                <button type="submit" className="text-btn">저장</button>
-                <button type="button" onClick={() => setIsEditingNickname(false)} className="text-btn dim">취소</button>
-              </form>
-            ) : (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>{profile?.nickname}</span>
-                <button onClick={() => setIsEditingNickname(true)} className="text-btn-small">[변경]</button>
-              </div>
-            )}
-            {saveMessage && <p style={{ fontSize: '9px', color: '#4adf84', marginTop: 4 }}>{saveMessage}</p>}
-          </div>
-          <p style={{ fontSize: '9px', color: 'rgba(255,255,255,0.2)', marginTop: 12 }}>사용 시작: {formatDate(profile?.created_at)}</p>
-        </section>
-
-        {/* 목소리 기준 섹션 */}
-        <section className="settings-group" style={{ marginTop: 48 }}>
-          <p className="settings-label">목소리 기준</p>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
-            <div>
-              <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>마지막 측정: {formatDate(profile?.updated_at)}</p>
+        <div className="settings-list-group">
+          {/* 닉네임 설정 */}
+          <div className="settings-item-row">
+            <span className="settings-item-label">닉네임</span>
+            <div className="settings-item-content">
+              {isEditingNickname ? (
+                <form onSubmit={handleNicknameSubmit} style={{ display: 'flex', gap: 10, width: '100%' }}>
+                  <input 
+                    autoFocus 
+                    value={nicknameInput} 
+                    onChange={e => setNicknameInput(e.target.value)}
+                    className="nickname-edit-input"
+                  />
+                  <button type="submit" className="action-btn-small primary">저장</button>
+                  <button type="button" onClick={closeEdit} className="action-btn-small">취소</button>
+                </form>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <span className="settings-item-value">{profile?.nickname}</span>
+                  <button onClick={() => setIsEditingNickname(true)} className="icon-circle-btn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                  </button>
+                </div>
+              )}
             </div>
-            <button onClick={onRecalibrate} className="recalibrate-trigger">재측정하기 →</button>
           </div>
-        </section>
+
+          {/* 목소리 기준 설정 */}
+          <div className="settings-item-row">
+            <span className="settings-item-label">목소리 기준</span>
+            <div className="settings-item-content">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span className="settings-item-value">{formatDate(profile?.updated_at)}</span>
+                <button onClick={onRecalibrate} className="icon-circle-btn">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <div className="settings-item-row no-border">
+            <span className="settings-item-label">사용 시작일</span>
+            <span className="settings-item-value" style={{ opacity: 0.4, fontSize: 13, fontWeight: 500 }}>{formatDate(profile?.created_at)}</span>
+          </div>
+        </div>
 
         {/* 계정 관리 섹션 */}
-        <section className="settings-group" style={{ marginTop: 60, borderTop: '0.5px solid rgba(255,255,255,0.06)', paddingTop: 24 }}>
-          <p className="settings-label">계정 관리</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20, marginTop: 16 }}>
-            <button onClick={() => signOut()} className="settings-action-row">로그아웃</button>
-            <button onClick={handleDeleteAccount} className="settings-action-row danger">탈퇴하기</button>
+        <div style={{ marginTop: 48 }}>
+          <p className="settings-label" style={{ marginBottom: 12 }}>계정 관리</p>
+          <div className="settings-list-group">
+            <div className="settings-item-row">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <svg width="18" height="18" viewBox="0 0 18 18" style={{ flexShrink: 0 }}>
+                  <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#4285F4"/>
+                  <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#34A853"/>
+                  <path d="M3.964 10.71a5.41 5.41 0 0 1-.282-1.71c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
+                  <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.443 2.017.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+                </svg>
+                <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', fontWeight: 500, wordBreak: 'break-all' }}>{user?.email}</span>
+              </div>
+            </div>
+            
+            <div className="settings-item-row no-border" style={{ justifyContent: 'flex-start', gap: 20 }}>
+              <button onClick={() => signOut()} className="text-action-btn">로그아웃</button>
+              <button onClick={handleDeleteAccount} className="text-action-btn danger">탈퇴하기</button>
+            </div>
           </div>
-        </section>
+        </div>
       </div>
 
       <style>{`
         .settings-view { height: 100vh; overflow-y: auto; }
-        .settings-label { font-size: 9px; color: rgba(255,255,255,0.3); letter-spacing: 0.1em; }
-        .text-btn { background: none; border: none; color: white; font-family: 'Space Mono'; font-size: 11px; cursor: pointer; }
-        .text-btn.dim { color: rgba(255,255,255,0.3); }
-        .text-btn-small { background: none; border: none; color: rgba(255,255,255,0.3); font-family: 'Space Mono'; font-size: 10px; cursor: pointer; }
-        .nickname-edit-input { background: none; border: none; border-bottom: 1px solid rgba(255,255,255,0.3); color: white; font-family: 'Space Mono'; font-size: 13px; outline: none; width: 120px; }
-        .recalibrate-trigger { background: none; border: none; color: white; font-family: 'Space Mono'; font-size: 11px; cursor: pointer; }
-        .settings-action-row { background: none; border: none; color: rgba(255,255,255,0.5); font-family: 'Space Mono'; font-size: 10px; cursor: pointer; text-align: left; padding: 0; }
-        .settings-action-row.danger { color: rgba(255,59,59,0.4); }
+        .settings-list-group {
+          background: rgba(255,255,255,0.03);
+          border-radius: 16px;
+          border: 0.5px solid rgba(255,255,255,0.05);
+          overflow: hidden;
+        }
+        .settings-item-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 18px 16px;
+          border-bottom: 0.5px solid rgba(255,255,255,0.06);
+          min-height: 72px;
+        }
+        .settings-item-row.no-border { border-bottom: none; }
+        .settings-item-label { font-size: 14px; color: rgba(255,255,255,0.4); font-weight: 500; }
+        .settings-item-value { font-size: 16px; color: white; font-weight: 600; }
+        
+        .icon-circle-btn {
+          width: 36px;
+          height: 36px;
+          border-radius: 50%;
+          background: rgba(255,255,255,0.06);
+          border: 0.5px solid rgba(255,255,255,0.1);
+          color: white;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+        .icon-circle-btn:active {
+          background: rgba(255,255,255,0.15);
+          transform: scale(0.95);
+        }
+        
+        .text-action-btn {
+          background: none;
+          border: none;
+          color: rgba(255,255,255,0.4);
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          padding: 4px 0;
+        }
+        .text-action-btn.danger { color: rgba(255,82,82,0.5); }
+        
+        .action-btn-small {
+          background: rgba(255,255,255,0.1);
+          border: none;
+          color: white;
+          padding: 8px 14px;
+          border-radius: 8px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .action-btn-small.primary {
+          background: #4adf84;
+          color: #0e0e0e;
+        }
+        
+        .nickname-edit-input {
+          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 8px;
+          color: white;
+          padding: 8px 12px;
+          font-size: 15px;
+          outline: none;
+          flex: 1;
+        }
+        
+        .settings-label { font-size: 12px; color: rgba(255,255,255,0.3); font-weight: 600; letter-spacing: 0.05em; padding-left: 4px; }
       `}</style>
     </div>
   );

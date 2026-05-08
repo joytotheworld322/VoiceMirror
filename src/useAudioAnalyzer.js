@@ -88,7 +88,7 @@ export default function useAudioAnalyzer(personalizedLevels = null, sessionComfo
             sum += val * val;
           }
           const rms = Math.sqrt(sum / bufferLength);
-          const db = rms > 0 ? 20 * Math.log10(rms) + 100 : 0; 
+          const db = rms > 0 ? 20 * Math.log10(rms) + 90 : 0; 
           
           setCurrentDb(db);
           latestDbRef.current = db;
@@ -97,8 +97,8 @@ export default function useAudioAnalyzer(personalizedLevels = null, sessionComfo
           const totalEnergy = dataArray.reduce((a, b) => a + b, 0);
           const voiceRatio = totalEnergy > 0 ? voiceEnergy / totalEnergy : 0;
           
-          // 목소리 여부 판정 (최소 음량 게이트 포함)
-          const isVoiceLikeResult = db > 42 && voiceRatio >= VOICE_RATIO_MIN;
+          // 목소리 여부 판정 (숨소리 차단을 위해 40dB로 재상향)
+          const isVoiceLikeResult = db > 40 && voiceRatio >= VOICE_RATIO_MIN;
 
           let nextStatus = 'silent';
           const curAmbient = ambientRef.current;
@@ -108,9 +108,12 @@ export default function useAudioAnalyzer(personalizedLevels = null, sessionComfo
             const levels = config.current;
             const sComfort = sessionComfortRef.current;
             
-            const effectiveComfortGap = sComfort 
+            // 환경이 너무 조용하더라도 최소 20dB의 간격은 보장 (숨소리가 TOO LOUD가 되지 않게)
+            const rawGap = sComfort 
               ? (sComfort - curAmbient) 
               : (levels ? (levels.comfortable - levels.ambient) : 0);
+            
+            const effectiveComfortGap = Math.max(20, rawGap);
 
             // [자동 보정 로직 1] 목소리로 판정되었지만 현재 소음 기준점보다 작다면 즉시 하향 조정
             if (db < curAmbient) {

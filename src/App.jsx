@@ -26,6 +26,7 @@ function App() {
   const [tempAmbient, setTempAmbient]       = useState(null);
   const [isDailyAmbientDone, setIsDailyAmbientDone] = useState(false);
   const [currentSession, setCurrentSession] = useState(null);
+  const [isAppActive, setIsAppActive] = useState(true); // 앱 활성 상태 관리
 
   // 세션 데이터를 ref에도 병렬 저장 → beforeunload에서 최신값 참조용
   const currentSessionRef = useRef(null);
@@ -87,7 +88,8 @@ function App() {
     return { ambient: base, comfortable: profile.comfortable_level || (base + 15) };
   }, [profile, onboardingStep, tempAmbient]);
 
-  const { status, currentDb, ambientDb, isVoiceLike } = useAudioAnalyzer(personalizedLevels);
+  // 앱이 활성 상태일 때만 오디오 분석기 가동
+  const { status, currentDb, ambientDb, isVoiceLike } = useAudioAnalyzer(personalizedLevels, null, isAppActive);
 
   // 실시간 오디오 값 추적용 Ref (타이머 리셋 방지)
   const liveAudioRef = useRef({ db: 40, status: 'silent', ambient: 40 });
@@ -171,10 +173,11 @@ function App() {
     }
   }, []);
 
-  // ── 7. 세션 종료 및 강제 저장 처리 ─────────────────────
+  // ── 7. 세션 종료 및 앱 상태 처리 ───────────────────────
   useEffect(() => {
     const handleVisibility = () => {
       if (document.hidden) {
+        setIsAppActive(false); // 마이크 끄기
         bgTimerRef.current = setTimeout(async () => {
           const snap = currentSessionRef.current;
           await trySaveSession(snap);
@@ -182,6 +185,7 @@ function App() {
           currentSessionRef.current = null;
         }, 3 * 60 * 1000); // 테스트 편의를 위해 3분으로 단축
       } else {
+        setIsAppActive(true); // 마이크 다시 켜기
         if (bgTimerRef.current) {
           clearTimeout(bgTimerRef.current);
           bgTimerRef.current = null;

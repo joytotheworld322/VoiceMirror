@@ -1,9 +1,8 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
-
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
 }
 
 html,
@@ -17,8 +16,8 @@ body,
 }
 
 body {
-  font-family: 'Space Mono', monospace;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .app {
@@ -182,7 +181,7 @@ body {
   background: none;
   border: none;
   color: #fff;
-  font-family: 'Space Mono', monospace;
+  font-family: "Pretendard Variable", sans-serif;
   font-size: 10px;
   opacity: 0.3; /* 평소에는 흐릿하게 */
   padding: 12px;
@@ -203,7 +202,7 @@ body {
   height: 100%;
   background: #0e0e0e;
   color: #fff;
-  font-family: 'Space Mono', monospace;
+  font-family: "Pretendard Variable", sans-serif;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -218,16 +217,17 @@ body {
 }
 
 .app-name-small {
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.15em;
   opacity: 0.25;
+  font-weight: 600;
 }
 
 .back-button-text {
   background: none;
   border: none;
   color: #4adf84;
-  font-family: 'Space Mono', monospace;
+  font-family: "Pretendard Variable", sans-serif;
   font-size: 10px;
   font-weight: 700;
   cursor: pointer;
@@ -302,10 +302,10 @@ body {
 }
 
 .eyebrow {
-  font-size: 8px;
-  letter-spacing: 0.1em;
+  font-size: 10px;
+  letter-spacing: 0.08em;
   font-weight: 700;
-  opacity: 0.22;
+  opacity: 0.3;
 }
 
 .eyebrow.green {
@@ -380,10 +380,11 @@ body {
 }
 
 .feedback-text {
-  font-size: 11px;
-  line-height: 1.9;
-  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.7);
   white-space: pre-line;
+  letter-spacing: -0.01em;
 }
 
 .feedback-text :last-child,
@@ -434,7 +435,7 @@ body {
   background: transparent;
   border: none;
   color: #fff;
-  font-family: 'Space Mono', monospace;
+  font-family: "Pretendard Variable", sans-serif;
   font-size: 18px;
   outline: none;
 }
@@ -447,7 +448,7 @@ body {
   background: transparent;
   border: none;
   color: #fff;
-  font-family: 'Space Mono', monospace;
+  font-family: "Pretendard Variable", sans-serif;
   font-size: 18px;
   cursor: pointer;
   padding: 0 8px;
@@ -549,7 +550,7 @@ body {
   border: none;
   border-bottom: 1px solid #4adf84;
   color: #fff;
-  font-family: 'Space Mono', monospace;
+  font-family: "Pretendard Variable", sans-serif;
   font-size: 13px;
   outline: none;
   width: 100%;
@@ -567,7 +568,7 @@ body {
   background: rgba(255, 59, 59, 0.1);
   border: 0.5px solid rgba(255, 59, 59, 0.3);
   color: #ff3b3b;
-  font-family: 'Space Mono', monospace;
+  font-family: "Pretendard Variable", sans-serif;
   font-size: 10px;
   padding: 6px 12px;
   border-radius: 4px;
@@ -636,7 +637,7 @@ body {
   background: rgba(74, 223, 132, 0.1);
   border: 0.5px solid rgba(74, 223, 132, 0.3);
   color: #4adf84;
-  font-family: 'Space Mono', monospace;
+  font-family: "Pretendard Variable", sans-serif;
   font-size: 9px;
   font-weight: 700;
   padding: 8px 14px;
@@ -653,7 +654,7 @@ body {
 }
 
 .user-greeting {
-  font-family: 'Space Mono', monospace;
+  font-family: "Pretendard Variable", sans-serif;
   font-size: 11px;
   color: rgba(255,255,255,0.3);
   animation: fadeIn 0.8s ease forwards;
@@ -674,7 +675,7 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.2);
   color: white;
   padding: 16px 32px;
-  font-family: 'Space Mono', monospace;
+  font-family: "Pretendard Variable", sans-serif;
   font-size: 12px;
   letter-spacing: 0.2em;
   cursor: pointer;
@@ -746,7 +747,7 @@ body {
 
 .btn-text {
   color: #ffffff;
-  font-family: 'Space Mono', monospace;
+  font-family: "Pretendard Variable", sans-serif;
   font-size: 10px;
   letter-spacing: 0.2em;
 }
@@ -756,7 +757,7 @@ body {
   border: none;
   color: #0e0e0e;
   padding: 14px 48px;
-  font-family: 'Space Mono', monospace;
+  font-family: "Pretendard Variable", sans-serif;
   font-size: 11px;
   letter-spacing: 0.2em;
   cursor: pointer;

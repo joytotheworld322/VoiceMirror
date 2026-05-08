@@ -82,16 +82,27 @@ export default function MainView({
         </button>
 
         {/* 중앙 상태 정보 */}
-        <div className="bottom-info" style={{ position: 'static', margin: 0, border: 'none', background: 'none', pointerEvents: 'auto' }}>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'baseline', color: 'rgba(255,255,255,0.4)', fontSize: '11px', fontFamily: 'Space Mono' }}>
+        <div className="bottom-info" style={{ 
+          position: 'static', 
+          margin: 0, 
+          border: 'none', 
+          background: 'none', 
+          pointerEvents: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'baseline', color: 'rgba(255,255,255,0.4)', fontSize: '11px', fontWeight: 600 }}>
             <span>{ambientDb}dB</span>
             <span>/</span>
             <span style={{ color: 'white' }}>+{relativeDb}dB</span>
           </div>
           <div style={{ 
             fontSize: '10px', 
-            letterSpacing: '0.1em', 
-            marginTop: '4px', 
+            fontWeight: 700,
+            letterSpacing: '0.05em', 
+            marginTop: '2px', 
             textAlign: 'center',
             color: status === 'danger' ? '#ff3b3b' : 'rgba(255,255,255,0.6)'
           }}>

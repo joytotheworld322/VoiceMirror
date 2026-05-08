@@ -124,7 +124,7 @@ function DualLineChart({ session }) {
 
     // x축 레이블 (0, 6, 12, 18, 24)
     ctx.fillStyle = 'rgba(255,255,255,0.2)';
-    ctx.font = `${8 * dpr}px Space Mono, monospace`;
+    ctx.font = `${8 * dpr}px sans-serif`;
     ctx.scale(1 / dpr, 1 / dpr);
     [0, 6, 12, 18, 24].forEach(h => {
       ctx.fillText(String(h), toX(h) * dpr, (H - 2) * dpr);
@@ -133,11 +133,6 @@ function DualLineChart({ session }) {
 
   return (
     <div style={{ position: 'relative' }}>
-      {/* 범례 */}
-      <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginBottom: 4 }}>
-        <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.2)', fontFamily: 'Space Mono' }}>── ambient</span>
-        <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.6)', fontFamily: 'Space Mono' }}>── 발화</span>
-      </div>
       <canvas ref={canvasRef} style={{ width: '100%', height: 80, display: 'block' }} />
     </div>
   );
@@ -181,7 +176,7 @@ function WeeklyBarChart({ weeklyData }) {
               ? (weeklyData[i].dangerRatio < 0.05 ? 'rgba(74,223,132,0.5)' : weeklyData[i].dangerRatio < 0.15 ? 'rgba(245,197,24,0.5)' : 'rgba(255,59,59,0.5)')
               : 'rgba(255,255,255,0.2)';
           return (
-            <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 9, color, fontFamily: 'Space Mono' }}>
+            <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 11, color, fontWeight: isToday ? 700 : 400 }}>
               {label}
             </div>
           );
@@ -191,7 +186,6 @@ function WeeklyBarChart({ weeklyData }) {
   );
 }
 
-// ─── 메인 컴포넌트 ───────────────────────────────────────────
 export default function InsightView({ userId, currentSession, onBack }) {
   const [dbSessions, setDbSessions] = useState([]);
   const [loadingData, setLoadingData] = useState(true);
@@ -305,8 +299,8 @@ export default function InsightView({ userId, currentSession, onBack }) {
 
   const headerJsx = (
     <header className="insight-header" style={{ borderBottom: 'none' }}>
-      <button className="back-button-text" onClick={onBack} style={{ color: 'white', fontSize: '18px' }}>←</button>
-      <span className="app-name-small" style={{ letterSpacing: '0.2em' }}>VOICEMIRROR</span>
+      <button className="back-button-text" onClick={onBack} style={{ color: 'white', fontSize: '20px', fontWeight: 'bold' }}>←</button>
+      <div />
     </header>
   );
 
@@ -316,7 +310,7 @@ export default function InsightView({ userId, currentSession, onBack }) {
         {headerJsx}
         <div className="loading-container">
           <SmallBreathPulse />
-          <p style={{ marginTop: 20, fontSize: 13, color: 'rgba(255,255,255,0.4)', fontFamily: 'Space Mono' }}>데이터를 불러오는 중...</p>
+          <p style={{ marginTop: 20, fontSize: 14, color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>데이터를 불러오는 중...</p>
         </div>
       </div>
     );
@@ -351,16 +345,16 @@ export default function InsightView({ userId, currentSession, onBack }) {
   const weekSummary = () => {
     if (validDays.length <= 1) {
       return (
-        <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontFamily: 'Space Mono', lineHeight: 1.7 }}>
+        <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', lineHeight: 1.6 }}>
           이번 주 세션이 쌓이면<br />요일별 패턴을 보여드려요.
         </p>
       );
     }
     if (easiestDay.idx === hardestDay.idx) {
-      return <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontFamily: 'Space Mono' }}>이번 주 기록이 하루뿐이에요.</p>;
+      return <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', fontWeight: 500 }}>이번 주 기록이 하루뿐이에요.</p>;
     }
     return (
-      <p style={{ fontSize: 10, fontFamily: 'Space Mono', lineHeight: 1.7 }}>
+      <p style={{ fontSize: 11, fontWeight: 500, lineHeight: 1.6 }}>
         <span style={{ color: 'rgba(74,223,132,0.6)' }}>가장 편안했던 날은 {DAY_LABELS[easiestDay.idx]}요일</span>
         <span style={{ color: 'rgba(255,255,255,0.3)' }}>,<br /></span>
         <span style={{ color: 'rgba(255,59,59,0.5)' }}>가장 힘들었던 날은 {DAY_LABELS[hardestDay.idx]}요일</span>
@@ -388,7 +382,7 @@ export default function InsightView({ userId, currentSession, onBack }) {
             </div>
           </div>
           <div className="voice-stats-summary" style={{ marginTop: 12 }}>
-            <p style={{ fontFamily: 'Space Mono', fontSize: 13, fontWeight: 'bold', color: 'rgba(255,255,255,0.6)' }}>
+            <p style={{ fontSize: 14, fontWeight: 'bold', color: 'rgba(255,255,255,0.7)' }}>
               총 {formatDuration(totalVoicedSeconds)} 발화
             </p>
             <p className="card-note" style={{ color: vocalLoadColor, marginTop: 8 }}>{vocalLoadText}</p>
@@ -399,15 +393,27 @@ export default function InsightView({ userId, currentSession, onBack }) {
         <section className="insight-card dark">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
             <span className="eyebrow">ENVIRONMENT</span>
-            <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.2)', fontFamily: 'Space Mono' }}>오늘 세션 평균 기준</span>
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontWeight: 600 }}>오늘 세션 평균 기준</span>
           </div>
 
-          {/* 환경 레이블 */}
-          <div style={{ marginBottom: 16 }}>
-            <p style={{ fontSize: 13, fontWeight: 'bold', color: ambientInfo.color, marginBottom: 8 }}>
-              {ambientInfo.label}
-            </p>
-            <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>{ambientInfo.desc}</p>
+          {/* 환경 레이블 + 범례 */}
+          <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <p style={{ fontSize: 15, fontWeight: 'bold', color: ambientInfo.color, marginBottom: 4 }}>
+                {ambientInfo.label}
+              </p>
+              <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.4 }}>{ambientInfo.desc}</p>
+            </div>
+            
+            {/* 범례 (차트 외부로 이동) */}
+            <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontWeight: 600 }}>── 환경</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>── 발화</span>
+              </div>
+            </div>
           </div>
 
           {/* 24시간 듀얼 라인 차트 */}
@@ -423,7 +429,7 @@ export default function InsightView({ userId, currentSession, onBack }) {
         <section className="insight-card dark" style={{ background: '#111', border: '0.5px solid rgba(255,255,255,0.05)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
             <span className="eyebrow">THIS WEEK</span>
-            <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.2)', fontFamily: 'Space Mono' }}>성대 부하 비율 기준</span>
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 600 }}>성대 부하 비율 기준</span>
           </div>
           <div style={{ marginTop: 12 }}>
             <WeeklyBarChart weeklyData={weeklyData} />

@@ -69,7 +69,7 @@ export default function BreathCanvas({ status, currentDb = 0, overrideConfig = n
       const r = Math.max(1, anim.radius + pulseAmp * Math.sin(anim.time * Math.PI * 0.5) + anim.dbBoost);
 
       const cx = canvas.width / 2;
-      const cy = canvas.height / 2;
+      const cy = canvas.height * 0.4;
       const cr = Math.round(anim.r);
       const cg = Math.round(anim.g);
       const cb = Math.round(anim.b);
