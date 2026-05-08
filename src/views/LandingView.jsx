@@ -38,42 +38,42 @@ export default function LandingView({ onLogin }) {
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          font-family: 'Space Mono', monospace;
           position: relative;
           overflow: hidden;
         }
 
         .landing-app-name {
-          font-size: 9px;
+          font-size: 11px;
           letter-spacing: 0.18em;
           color: rgba(255, 255, 255, 0.25);
           margin-bottom: 48px;
+          font-weight: 600;
         }
 
         .landing-intro {
-          font-size: 13px;
-          color: rgba(255, 255, 255, 0.55);
-          line-height: 1.9;
+          font-size: 15px;
+          color: rgba(255, 255, 255, 0.6);
+          line-height: 1.7;
           text-align: center;
-          letter-spacing: 0.02em;
-          margin-bottom: 48px;
-          font-weight: 400;
+          letter-spacing: -0.01em;
+          margin-bottom: 64px;
+          font-weight: 500;
         }
 
         .landing-google-btn {
           display: flex;
           align-items: center;
           gap: 10px;
-          background: rgba(255, 255, 255, 0.06);
+          background: rgba(255, 255, 255, 0.05);
           border: 0.5px solid rgba(255, 255, 255, 0.12);
           border-radius: 12px;
-          padding: 14px 28px;
+          padding: 16px 32px;
           cursor: pointer;
           transition: background 0.2s;
-          color: rgba(255, 255, 255, 0.7);
-          font-family: 'Space Mono', monospace;
-          font-size: 12px;
-          letter-spacing: 0.05em;
+          color: rgba(255, 255, 255, 0.8);
+          font-size: 13px;
+          font-weight: 600;
+          letter-spacing: -0.01em;
         }
 
         .landing-google-btn:hover {
@@ -81,13 +81,15 @@ export default function LandingView({ onLogin }) {
         }
 
         .landing-footer-note {
-          font-size: 8px;
-          color: rgba(255, 255, 255, 0.18);
+          font-size: 11px;
+          color: rgba(255, 255, 255, 0.2);
           text-align: center;
-          line-height: 1.8;
-          letter-spacing: 0.04em;
+          line-height: 1.6;
+          letter-spacing: -0.01em;
           position: absolute;
-          bottom: 32px;
+          bottom: calc(env(safe-area-inset-bottom) + 48px);
+          width: 100%;
+          font-weight: 500;
         }
       `}</style>
     </div>

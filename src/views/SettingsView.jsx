@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { updateUserProfile } from '../lib/userService';
 import { deleteAllSessions } from '../lib/sessionService';
 import { signOut } from '../lib/authService';
@@ -7,37 +7,37 @@ import { supabase } from '../lib/supabase';
 export default function SettingsView({ user, profile, onBack, onRecalibrate, onProfileUpdate }) {
   const [isEditingNickname, setIsEditingNickname] = useState(false);
   const [nicknameInput, setNicknameInput] = useState(profile?.nickname || '');
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState('');
+  const [isSavingNickname, setIsSavingNickname] = useState(false);
+
+  // 프로필 정보가 변경되면 입력창 상태도 최신화
+  useEffect(() => {
+    if (!isEditingNickname) {
+      setNicknameInput(profile?.nickname || '');
+    }
+  }, [profile?.nickname, isEditingNickname]);
   
   // 모바일 확대 방지 및 편집 모드 종료 공통 함수
   const closeEdit = () => {
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-    }
     setIsEditingNickname(false);
+    setIsSavingNickname(false);
+    setNicknameInput(profile?.nickname || '');
   };
 
   const handleNicknameSubmit = async (e) => {
     e.preventDefault();
-    if (!nicknameInput.trim() || nicknameInput === profile.nickname) {
+    if (!nicknameInput.trim() || nicknameInput === profile?.nickname) {
       closeEdit();
       return;
     }
-    setIsSaving(true);
+    setIsSavingNickname(true);
     try {
       await updateUserProfile(user.id, { nickname: nicknameInput.trim() });
-      setSaveMessage('저장됐어요.');
       if (onProfileUpdate) onProfileUpdate();
-      setTimeout(() => {
-        setSaveMessage('');
-        closeEdit();
-      }, 1500);
+      closeEdit();
     } catch (e) {
       console.error('닉네임 변경 실패:', e);
       alert('저장에 실패했습니다.');
-    } finally {
-      setIsSaving(false);
+      setIsSavingNickname(false);
     }
   };
 
@@ -80,20 +80,26 @@ export default function SettingsView({ user, profile, onBack, onRecalibrate, onP
             <span className="settings-item-label">닉네임</span>
             <div className="settings-item-content">
               {isEditingNickname ? (
-                <form onSubmit={handleNicknameSubmit} style={{ display: 'flex', gap: 10, width: '100%' }}>
+                <form onSubmit={handleNicknameSubmit} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', opacity: isSavingNickname ? 0.6 : 1, pointerEvents: isSavingNickname ? 'none' : 'auto' }}>
                   <input 
                     autoFocus 
                     value={nicknameInput} 
                     onChange={e => setNicknameInput(e.target.value)}
                     className="nickname-edit-input"
+                    disabled={isSavingNickname}
+                    style={{ background: isSavingNickname ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.05)' }}
                   />
-                  <button type="submit" className="action-btn-small primary">저장</button>
-                  <button type="button" onClick={closeEdit} className="action-btn-small">취소</button>
+                  <button type="submit" className="icon-circle-btn primary" disabled={isSavingNickname} style={{ width: 38, height: 38, background: '#4adf84', color: '#0e0e0e', border: 'none', opacity: isSavingNickname ? 0.5 : 1 }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </button>
+                  <button type="button" onClick={closeEdit} className="icon-circle-btn" disabled={isSavingNickname} style={{ width: 38, height: 38, opacity: isSavingNickname ? 0.5 : 1 }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                  </button>
                 </form>
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <span className="settings-item-value">{profile?.nickname}</span>
-                  <button onClick={() => setIsEditingNickname(true)} className="icon-circle-btn">
+                  <button onClick={() => { setNicknameInput(profile?.nickname || ''); setIsEditingNickname(true); }} className="icon-circle-btn">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
                   </button>
                 </div>
@@ -197,11 +203,15 @@ export default function SettingsView({ user, profile, onBack, onRecalibrate, onP
           background: rgba(255,255,255,0.1);
           border: none;
           color: white;
-          padding: 8px 14px;
+          padding: 0 14px;
+          height: 38px;
           border-radius: 8px;
           font-size: 13px;
           font-weight: 600;
           cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
         .action-btn-small.primary {
           background: #4adf84;
@@ -213,10 +223,12 @@ export default function SettingsView({ user, profile, onBack, onRecalibrate, onP
           border: 1px solid rgba(255,255,255,0.1);
           border-radius: 8px;
           color: white;
-          padding: 8px 12px;
+          padding: 0 12px;
+          height: 38px;
           font-size: 15px;
           outline: none;
           flex: 1;
+          min-width: 0;
         }
         
         .settings-label { font-size: 12px; color: rgba(255,255,255,0.3); font-weight: 600; letter-spacing: 0.05em; padding-left: 4px; }
