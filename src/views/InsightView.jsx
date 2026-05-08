@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { analyzeSession } from '../utils/analyzeSession';
 import { analyzePattern } from '../utils/analyzePattern';
 import { generateFeedback } from '../utils/generateFeedback';
+import { getRecentSessions } from '../lib/sessionService';
 
 function DonutChart({ stateRatio }) {
   const canvasRef = useRef(null);
@@ -54,17 +55,18 @@ function SmallBreathPulse() {
   const canvasRef = useRef(null);
   useEffect(() => {
     const canvas = canvasRef.current;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
     let rafId;
     let time = 0;
 
-    const draw = (timestamp) => {
+    const draw = () => {
       time += 0.05;
       const radius = 12 + Math.sin(time) * 2;
       ctx.clearRect(0, 0, 60, 60);
       ctx.beginPath();
       ctx.arc(30, 30, radius, 0, Math.PI * 2);
-      ctx.fillStyle = '#2a2a2a';
+      ctx.fillStyle = '#1e2e22'; // Silent color pulse
       ctx.fill();
       rafId = requestAnimationFrame(draw);
     };
@@ -74,57 +76,70 @@ function SmallBreathPulse() {
   return <canvas ref={canvasRef} width={60} height={60} />;
 }
 
-function HalfSessionBar({ label, ratio, color }) {
-  return (
-    <div className="half-session-row">
-      <span className="half-label">{label}</span>
-      <div className="half-bar-bg">
-        <div className="half-bar-fill" style={{ width: `${ratio * 100}%`, backgroundColor: color }} />
-      </div>
-    </div>
-  );
-}
-
-export default function InsightView({ currentSession, onBack }) {
+export default function InsightView({ userId, currentSession, onBack, onSettings }) {
+  const [dbSessions, setDbSessions] = useState([]);
+  const [loadingData, setLoadingData] = useState(true);
   const [feedback, setFeedback] = useState(null);
   const [isLoadingFeedback, setIsLoadingFeedback] = useState(false);
 
-  const sessions = useMemo(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('vm_sessions') || '[]');
-      if (currentSession && currentSession.samples.length >= 10) {
-        const liveSession = {
-          ...currentSession,
-          duration: currentSession.samples.length,
-          ambientFloor: currentSession.ambientCount > 0 ? currentSession.ambientTotal / currentSession.ambientCount : 40
-        };
-        return [...saved, liveSession];
+  useEffect(() => {
+    async function load() {
+      if (!userId) return;
+      setLoadingData(true);
+      try {
+        const raw = await getRecentSessions(userId, 30);
+        // Map snake_case to camelCase for analyzePattern compatibility
+        const mapped = raw.map(s => ({
+          id: s.id,
+          startedAt: s.started_at,
+          duration: s.duration,
+          ambientFloor: s.ambient_anchor,
+          samples: s.samples,
+          sessionComfortLevel: s.session_comfort_level,
+          vocalLoadSeconds: s.vocal_load_seconds,
+          lombardRatio: s.lombard_ratio,
+          vocalVariability: s.variability,
+          stateRatio: s.state_ratio,
+          halfStats: {
+            firstHalfAvg: s.first_half_avg,
+            secondHalfAvg: s.second_half_avg,
+          }
+        }));
+        setDbSessions(mapped);
+      } catch (e) {
+        console.error('세션 로드 실패:', e);
       }
-      return saved;
-    } catch (e) {
-      return [];
+      setLoadingData(false);
     }
-  }, [currentSession]);
+    load();
+  }, [userId]);
+
+  const sessions = useMemo(() => {
+    if (currentSession && currentSession.samples.length >= 10) {
+      const liveSession = {
+        ...currentSession,
+        duration: currentSession.samples.length,
+        ambientFloor: currentSession.ambientCount > 0 ? currentSession.ambientTotal / currentSession.ambientCount : 40
+      };
+      // For the trend, we only show DB sessions. The "Today's Voice" uses the most recent.
+      return [...dbSessions, liveSession];
+    }
+    return dbSessions;
+  }, [dbSessions, currentSession]);
 
   const latestSession = sessions[sessions.length - 1];
   const sessionAnalysis = useMemo(() => {
-    try {
-      return latestSession ? analyzeSession(latestSession) : null;
-    } catch (e) {
-      return null;
-    }
+    if (!latestSession) return null;
+    // If it's a live session, we analyze it. If it's from DB, we already have most stats but analyzeSession is safer for full UI consistency.
+    return analyzeSession(latestSession);
   }, [latestSession]);
 
   const patternAnalysis = useMemo(() => {
-    try {
-      return analyzePattern(sessions);
-    } catch (e) {
-      return analyzePattern([]);
-    }
+    return analyzePattern(sessions);
   }, [sessions]);
 
-  useEffect(() => {
-    if (sessionAnalysis && !feedback && !isLoadingFeedback) {
+  const fetchFeedback = () => {
+    if (sessionAnalysis && !isLoadingFeedback) {
       setIsLoadingFeedback(true);
       generateFeedback(sessionAnalysis, patternAnalysis, latestSession).then(res => {
         setFeedback(res);
@@ -134,6 +149,10 @@ export default function InsightView({ currentSession, onBack }) {
         setFeedback("피드백을 가져오는 데 실패했습니다.");
       });
     }
+  };
+
+  useEffect(() => {
+    fetchFeedback();
   }, [sessionAnalysis, patternAnalysis]);
 
   const formatDuration = (s) => {
@@ -142,12 +161,29 @@ export default function InsightView({ currentSession, onBack }) {
     return m > 0 ? `${m}분 ${rs}초` : `${rs}초`;
   };
 
-  if (!sessionAnalysis) {
+  if (loadingData) {
     return (
       <div className="insight-view empty">
         <header className="insight-header">
           <span className="app-name-small">VOICEMIRROR v2</span>
           <button className="back-button-text" onClick={onBack}>BACK</button>
+        </header>
+        <div className="loading-container">
+          <SmallBreathPulse />
+        </div>
+      </div>
+    );
+  }
+
+  if (!sessionAnalysis) {
+    return (
+      <div className="insight-view empty">
+        <header className="insight-header">
+          <span className="app-name-small">VOICEMIRROR v2</span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="settings-trigger" onClick={onSettings}>···</button>
+            <button className="back-button-text" onClick={onBack}>BACK</button>
+          </div>
         </header>
         <div className="empty-state">
           <p>아직 분석할 데이터가 충분하지 않아요.</p>
@@ -157,39 +193,73 @@ export default function InsightView({ currentSession, onBack }) {
     );
   }
 
-  const getDominantColor = (counts) => {
-    const states = ['danger', 'loud', 'good', 'silent'];
-    let max = -1;
-    let dominant = 'silent';
-    states.forEach(s => {
-      if ((counts[s] || 0) > max) {
-        max = counts[s];
-        dominant = s;
-      }
-    });
-    const colors = { good: '#4adf84', loud: '#f5c518', danger: '#ff3b3b', silent: '#1e2e22' };
-    return colors[dominant];
-  };
+  // --- Calculations for UI ---
+  const totalVoicedSeconds = sessionAnalysis.duration * (1 - sessionAnalysis.stateRatio.silent);
+  const vocalLoadPercent = totalVoicedSeconds > 0 
+    ? (sessionAnalysis.vocalLoadSeconds / totalVoicedSeconds) * 100 
+    : 0;
 
-  // Bar width logic: normalize based on max of the two
-  const maxHalf = Math.max(0.1, sessionAnalysis.halfStats.firstHalfAvg, sessionAnalysis.halfStats.secondHalfAvg);
-  const firstRatio = sessionAnalysis.halfStats.firstHalfAvg / maxHalf;
-  const secondRatio = sessionAnalysis.halfStats.secondHalfAvg / maxHalf;
+  let vocalLoadText = "성대에 무리가 없었어요.";
+  let vocalLoadColor = "rgba(74,223,132,0.6)";
+  if (vocalLoadPercent > 10) {
+    vocalLoadText = "성대를 꽤 많이 썼어요. 오늘 목 관리가 필요할 것 같아요.";
+    vocalLoadColor = "rgba(255,59,59,0.6)";
+  } else if (vocalLoadPercent > 0) {
+    vocalLoadText = "성대에 약간 힘이 들어갔어요.";
+    vocalLoadColor = "rgba(245,197,24,0.55)";
+  }
+
+  const anchor = latestSession.ambientFloor || sessionAnalysis.ambientFloor;
+  let ambientEnv = "보통 환경";
+  let ambientDesc = "일반적인 실내 수준이었어요.";
+  if (anchor < 45) {
+    ambientEnv = "조용한 환경";
+    ambientDesc = "배경 소음이 거의 없었어요.";
+  } else if (anchor > 60) {
+    ambientEnv = "시끄러운 환경";
+    ambientDesc = "주변 소음이 꽤 있었어요.";
+  }
+
+  let lombardMsg = "환경 소음에도 목소리를 잘 유지했어요.";
+  let lombardColor = "#4adf84";
+  if (sessionAnalysis.lombardRatio >= 15) {
+    lombardMsg = "소음 때문에 목소리가 많이 올라간 세션이에요. 가능하다면 더 조용한 환경에서 대화해보세요.";
+    lombardColor = "#ff3b3b";
+  } else if (sessionAnalysis.lombardRatio >= 5) {
+    lombardMsg = "소음 대비 목소리가 자연스럽게 올라갔어요.";
+    lombardColor = "#f5c518";
+  }
+
+  // Recent Sessions Bar Logic
+  const recentSessionsData = sessions.slice(-7).map(s => {
+    const analysis = analyzeSession(s);
+    const date = new Date(s.startedAt || s.started_at);
+    const isToday = date.toDateString() === new Date().toDateString();
+    const isYesterday = date.toDateString() === new Date(Date.now() - 86400000).toDateString();
+    let dateLabel = `${date.getMonth() + 1}/${date.getDate()}`;
+    if (isToday) dateLabel = "오늘";
+    if (isYesterday) dateLabel = "어제";
+    
+    let barColor = "#4adf84";
+    const dangerRatio = (analysis.stateRatio?.danger || 0) * 100;
+    if (dangerRatio > 15) barColor = "#ff3b3b";
+    else if (dangerRatio > 5) barColor = "#f5c518";
+
+    return { dangerRatio, dateLabel, barColor };
+  });
 
   return (
     <div className="insight-view">
       <header className="insight-header">
         <span className="app-name-small">VOICEMIRROR v2</span>
-        <button className="back-button-text" onClick={onBack}>BACK</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button className="settings-trigger" onClick={onSettings}>···</button>
+          <button className="back-button-text" onClick={onBack}>BACK</button>
+        </div>
       </header>
 
       <div className="insight-scroll-content">
-        <div className="meta-chips">
-          <span className="chip">실시간 세션 · {formatDuration(sessionAnalysis.duration)}</span>
-          <span className="chip">총 {sessions.length}번째 분석</span>
-        </div>
-
-        <section className="insight-card today-voice">
+        <section className="insight-card today-voice" style={{ backgroundColor: '#0a1a0f' }}>
           <span className="eyebrow green">TODAY'S VOICE</span>
           <div className="card-content-row">
             <DonutChart stateRatio={sessionAnalysis.stateRatio} />
@@ -201,74 +271,70 @@ export default function InsightView({ currentSession, onBack }) {
             </div>
           </div>
           
-          <div className="half-comparison">
-            <HalfSessionBar 
-              label="전반" 
-              ratio={firstRatio} 
-              color={getDominantColor(sessionAnalysis.halfStats.firstHalfState)}
-            />
-            <HalfSessionBar 
-              label="후반" 
-              ratio={secondRatio} 
-              color={getDominantColor(sessionAnalysis.halfStats.secondHalfState)}
-            />
+          <div className="voice-stats-summary" style={{ marginTop: 12 }}>
+            <p style={{ fontFamily: 'Space Mono', fontSize: 13, fontWeight: 'bold', color: 'rgba(255,255,255,0.6)' }}>
+              총 {formatDuration(totalVoicedSeconds)} 발화
+            </p>
+            <p className="card-note" style={{ color: vocalLoadColor, marginTop: 8 }}>
+              {vocalLoadText}
+            </p>
           </div>
-
-          <p className="card-note green">
-            {sessionAnalysis.vocalLoadSeconds > 0 
-              ? `성대 주의 구간이 약 ${formatDuration(sessionAnalysis.vocalLoadSeconds)} 있었어요.`
-              : "오늘은 성대 부하 구간이 없었어요."}
-          </p>
-          <p className="card-note" style={{ fontSize: 10, marginTop: -8 }}>
-            {sessionAnalysis.halfStats.halfDiff > sessionAnalysis.halfStats.firstHalfAvg * 0.1
-              ? "대화가 길어질수록 목소리에 힘이 들어가는 편이에요."
-              : "처음부터 끝까지 고르게 유지했어요."}
-          </p>
         </section>
 
         <section className="insight-card dark">
-          <span className="eyebrow">최근 7세션 · 성대 부하</span>
-          <div className="bar-chart-container" style={{ height: 44 }}>
-            {patternAnalysis.vocalLoadTrend.map((val, i) => (
-              <div 
-                key={i} 
-                className="bar" 
-                style={{ 
-                  height: `${Math.min(100, (val / 60) * 100)}%`, 
-                  backgroundColor: patternAnalysis.loadColors[i] 
-                }}
-              />
-            ))}
+          <span className="eyebrow">ENVIRONMENT</span>
+          <div className="env-header" style={{ marginBottom: 16 }}>
+            <p style={{ fontSize: 13, fontWeight: 'bold', color: '#fff' }}>{ambientEnv}</p>
+            <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>{ambientDesc}</p>
           </div>
-          <p className="card-note" style={{ color: patternAnalysis.trendMessage === 'increasing' ? '#f5c518' : '#4adf84', opacity: 0.5 }}>
-            {patternAnalysis.insufficient ? "세션이 쌓이면 추세를 보여드릴게요." : 
-             patternAnalysis.trendMessage === 'increasing' ? "최근 들어 조금씩 높아지고 있어요." : 
-             patternAnalysis.trendMessage === 'decreasing' ? "최근 들어 안정되고 있어요." : "유지되고 있어요."}
+          <p className="card-note" style={{ color: lombardColor, fontSize: 11, marginBottom: 12 }}>
+            {lombardMsg}
           </p>
+          {(sessionAnalysis.lombardRatio > 2 || patternAnalysis.sessionCount > 3) && (
+            <div className="bar-chart-container" style={{ height: 36 }}>
+              {patternAnalysis.lombardTrend.map((item, i) => (
+                <div 
+                  key={i} 
+                  className="bar blue" 
+                  style={{ height: `${Math.min(100, (item.lombard / 30) * 100)}%` }}
+                />
+              ))}
+            </div>
+          )}
         </section>
 
         <section className="insight-card dark">
-          <span className="eyebrow">소음 환경 반응</span>
-          <p className="card-note" style={{ 
-            marginBottom: 8, 
-            fontSize: 10, 
-            color: sessionAnalysis.ambientLevel === 'loud' ? '#f5c518' : sessionAnalysis.ambientLevel === 'quiet' ? '#4adf84' : 'rgba(255,255,255,0.35)'
-          }}>
-            {sessionAnalysis.ambientLevel === 'quiet' ? "조용한 환경이었어요." :
-             sessionAnalysis.ambientLevel === 'loud' ? "꽤 시끄러운 환경이었어요." :
-             "보통 수준의 환경이었어요."}
-          </p>
-          <div className="bar-chart-container" style={{ height: 36 }}>
-            {patternAnalysis.lombardTrend.map((item, i) => (
-              <div 
-                key={i} 
-                className="bar blue" 
-                style={{ height: `${Math.min(100, (item.lombard / 30) * 100)}%` }}
-              />
-            ))}
-          </div>
-          {!patternAnalysis.insufficient && (
-            <p className="card-note" style={{ opacity: 0.3 }}>주변이 시끄러울수록 목소리가 올라가는 경향이 있어요.</p>
+          <span className="eyebrow">RECENT SESSIONS</span>
+          {patternAnalysis.insufficient ? (
+            <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: 10 }}>세션이 쌓이면 패턴을 보여드릴게요.</p>
+          ) : (
+            <>
+              <div className="bar-chart-with-labels" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', height: 60, marginBottom: 8 }}>
+                {recentSessionsData.map((d, i) => (
+                  <div key={i} className="bar-group" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
+                    <div 
+                      className="bar" 
+                      style={{ 
+                        width: 8,
+                        height: `${Math.max(10, d.dangerRatio)}px`, 
+                        backgroundColor: d.barColor,
+                        borderRadius: 2
+                      }}
+                    />
+                    <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)', marginTop: 4 }}>{d.dateLabel}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="card-note" style={{ 
+                color: patternAnalysis.trendMessage === 'increasing' ? '#f5c518' : '#4adf84', 
+                fontSize: 11,
+                marginTop: 12 
+              }}>
+                {patternAnalysis.trendMessage === 'increasing' ? "최근 세션에서 성대 부하가 높아지고 있어요." : 
+                 patternAnalysis.trendMessage === 'decreasing' ? "최근 세션에서 성대 부하가 줄고 있어요." : 
+                 "비슷한 패턴이 유지되고 있어요."}
+              </p>
+            </>
           )}
         </section>
 
@@ -280,14 +346,31 @@ export default function InsightView({ currentSession, onBack }) {
               <SmallBreathPulse />
             </div>
           ) : (
-            <p className="feedback-text">
-              {feedback}
-            </p>
+            <>
+              <p className="feedback-text">
+                {feedback}
+              </p>
+              <button 
+                onClick={fetchFeedback}
+                style={{ 
+                  background: 'none', 
+                  border: 'none', 
+                  color: 'rgba(255,255,255,0.3)', 
+                  fontFamily: 'Space Mono', 
+                  fontSize: 10, 
+                  marginTop: 12,
+                  padding: 0,
+                  cursor: 'pointer'
+                }}
+              >
+                다시 불러오기
+              </button>
+            </>
           )}
         </section>
 
-        <div className="insight-footer">
-          측정이 부정확하다면 → VOICEMIRROR 3초 롱프레스로 재설정
+        <div className="insight-footer" style={{ fontSize: 9, color: 'rgba(255,255,255,0.15)', marginTop: 24, textAlign: 'center' }}>
+          설정 변경 → 우측 상단 메뉴 이용
         </div>
       </div>
     </div>

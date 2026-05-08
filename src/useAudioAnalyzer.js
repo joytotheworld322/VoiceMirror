@@ -14,6 +14,7 @@ export function useAudioAnalyzer(personalizedLevels = null, sessionComfortLevel 
   const [currentDb, setCurrentDb] = useState(0);
   const [ambientDb, setAmbientDb] = useState(40);
   const [permissionState, setPermissionState] = useState('pending');
+  const [isVoiceLike, setIsVoiceLike] = useState(false);
 
   const latestDbRef = useRef(0);
   const ambientRef = useRef(40);
@@ -146,6 +147,7 @@ export function useAudioAnalyzer(personalizedLevels = null, sessionComfortLevel 
             setAmbientDb(Math.round(ambientRef.current));
           }
 
+          setIsVoiceLike(isVoiceLike);
           setStatus(nextStatus);
           rafId = requestAnimationFrame(update);
         }
@@ -166,5 +168,5 @@ export function useAudioAnalyzer(personalizedLevels = null, sessionComfortLevel 
     };
   }, []);
 
-  return { status, currentDb, ambientDb, permissionState, triggerHaptic };
+  return { status, currentDb, ambientDb, permissionState, triggerHaptic, isVoiceLike };
 }

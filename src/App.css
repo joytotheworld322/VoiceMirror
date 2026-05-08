@@ -480,3 +480,153 @@ body {
   letter-spacing: 0.02em;
   padding-bottom: 20px;
 }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 0.3; transform: translateY(0); }
+}
+
+.user-greeting {
+  animation: fadeIn 0.8s ease forwards;
+}
+
+/* Settings View */
+.settings-item {
+  padding: 16px 0;
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-label {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.3);
+  letter-spacing: 0.05em;
+}
+
+.settings-value-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+}
+
+.settings-value {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.settings-action {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.nickname-input-inline {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #4adf84;
+  color: #fff;
+  font-family: 'Space Mono', monospace;
+  font-size: 13px;
+  outline: none;
+  width: 100%;
+  padding: 4px 0;
+}
+
+.settings-desc {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.2);
+  display: block;
+  margin-top: 2px;
+}
+
+.delete-button {
+  background: rgba(255, 59, 59, 0.1);
+  border: 0.5px solid rgba(255, 59, 59, 0.3);
+  color: #ff3b3b;
+  font-family: 'Space Mono', monospace;
+  font-size: 10px;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.settings-trigger {
+  background: none;
+  border: none;
+  color: #fff;
+  opacity: 0.2;
+  cursor: pointer;
+  padding: 8px;
+}
+
+.loading-splash {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0e0e0e;
+  height: 100%;
+  width: 100%;
+}
+
+/* Overriding for visibility */
+.settings-trigger {
+  opacity: 0.8 !important;
+  font-size: 20px !important;
+  color: #4adf84 !important;
+}
+
+/* Prominent Settings Button and Header */
+.main-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 24px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  z-index: 100;
+}
+
+.brand-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.app-name-static {
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.15em;
+  color: #ffffff;
+  opacity: 0.3;
+  user-select: none;
+}
+
+.settings-btn-prominent {
+  background: rgba(74, 223, 132, 0.1);
+  border: 0.5px solid rgba(74, 223, 132, 0.3);
+  color: #4adf84;
+  font-family: 'Space Mono', monospace;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  letter-spacing: 0.05em;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.settings-btn-prominent:active {
+  background: rgba(74, 223, 132, 0.2);
+  transform: translateY(1px);
+}
+
+.user-greeting {
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  color: rgba(255,255,255,0.3);
+  animation: fadeIn 0.8s ease forwards;
+}

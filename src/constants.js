@@ -31,6 +31,10 @@ export const AMBIENT_ALPHA = 0.005;   // EMA update speed (lower is slower)
 export const SPEAKER_OFFSET = 10;      // dB difference to be recognized as speaking
 export const VOICE_RATIO_MIN = 0.4;    // Minimum frequency energy ratio for human voice
 
+export const AMBIENT_ANCHOR_WINDOW = 10;     // Session start anchor measurement time (sec)
+export const AMBIENT_DRIFT_LIMIT   = 10;     // Allowed drift vs anchor (dB)
+export const ONBOARDING_VOICE_MIN = 40;      // Minimum dB for onboarding speech detection
+
 export const STATE_CONFIG = {
   silent: { bg: '#0e0e0e', label: 'SILENT' },
   good: { bg: '#0a1a0f', label: 'GOOD' },

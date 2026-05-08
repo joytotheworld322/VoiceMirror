@@ -1,13 +1,4 @@
-/**
- * VITE_ANTHROPIC_API_KEY environment variable required.
- */
-
 export async function generateFeedback(sessionAnalysis, patternAnalysis, rawSession = null) {
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY?.trim();
-  if (!apiKey) {
-    throw new Error("Missing VITE_ANTHROPIC_API_KEY");
-  }
-
   const voicedPercent = ((1 - sessionAnalysis.stateRatio.silent) * 100).toFixed(0);
   const hasPattern = !patternAnalysis.insufficient;
   const nickname = localStorage.getItem('vm_nickname') || '';
@@ -32,19 +23,7 @@ export async function generateFeedback(sessionAnalysis, patternAnalysis, rawSess
 - 오늘 기준: ${usedRecal ? '당일 재보정 적용' : '온보딩 기준 사용'}
 ${hasPattern ? `\n최근 패턴:\n- 성대 부하 추세: ${patternAnalysis.vocalLoadTrend.join(', ')}초` : '(패턴 데이터 부족, 단일 세션 기반으로만 피드백)'}`;
 
-  try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true"
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6", 
-        max_tokens: 1000,
-        system: `당신은 발화 데이터를 분석해서 사용자에게 실용적인 피드백을 주는 코치입니다.
+  const systemPrompt = `당신은 발화 데이터를 분석해서 사용자에게 실용적인 피드백을 주는 코치입니다.
 
 규칙:
 1. dB, %, 초 같은 수치를 직접 언급하지 말 것
@@ -56,8 +35,17 @@ ${hasPattern ? `\n최근 패턴:\n- 성대 부하 추세: ${patternAnalysis.voca
    좋은 예: '오늘 목 상태는 어떤가요?'
    나쁜 예: '요즘 어떤 대화들을 나누고 계신가요?'
 5. 2~3문장, 한국어, 간결하게
-6. 닉네임이 제공되면 첫 문장에 자연스럽게 포함할 것`,
-        messages: [{ role: "user", content: userPrompt }]
+6. 닉네임이 제공되면 첫 문장에 자연스럽게 포함할 것`;
+
+  try {
+    const response = await fetch("/api/feedback", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        system: systemPrompt,
+        userPrompt: userPrompt
       })
     });
 

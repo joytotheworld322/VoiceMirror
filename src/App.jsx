@@ -1,19 +1,25 @@
 import { useRef, useEffect, useState, useMemo } from 'react';
 import './App.css';
 import { useAudioAnalyzer } from './useAudioAnalyzer';
-import { LOCAL_STORAGE_KEYS } from './constants';
+import { LOCAL_STORAGE_KEYS, ONBOARDING_VOICE_MIN } from './constants';
 import MainView from './views/MainView';
 import InsightView from './views/InsightView';
+import SettingsView from './views/SettingsView';
 import BreathCanvas from './components/BreathCanvas';
 import { useSessionRecorder } from './hooks/useSessionRecorder';
+import { getOrCreateUser } from './lib/userService';
 
 export default function App() {
-  const [view, setView] = useState('main'); // main | insight
+  const [view, setView] = useState('main'); // main | insight | settings
+  const [user, setUser] = useState(null);
+  const [loadingUser, setLoadingUser] = useState(true);
+
   const [onboardingStep, setOnboardingStep] = useState(() => {
     if (!localStorage.getItem(LOCAL_STORAGE_KEYS.NICKNAME)) return 'nickname';
     if (!localStorage.getItem(LOCAL_STORAGE_KEYS.ONBOARDING_COMPLETE)) return 'ambient';
     return 'ambient'; // Always run ambient check on launch
   });
+
   const [isAmbientStarted, setIsAmbientStarted] = useState(false);
   const [onboardingData, setOnboardingData] = useState({
     ambientBaseline: null,
@@ -22,6 +28,23 @@ export default function App() {
   const [countdown, setCountdown] = useState(0);
   const [errorMsg, setErrorMsg] = useState(null);
   const [nicknameInput, setNicknameInput] = useState('');
+
+  // User Initialization
+  useEffect(() => {
+    async function initUser() {
+      const nickname = localStorage.getItem(LOCAL_STORAGE_KEYS.NICKNAME);
+      if (nickname) {
+        try {
+          const u = await getOrCreateUser(nickname);
+          setUser(u);
+        } catch (e) {
+          console.error('유저 초기화 실패:', e);
+        }
+      }
+      setLoadingUser(false);
+    }
+    initUser();
+  }, []);
 
   const personalizedLevels = useMemo(() => {
     if (onboardingStep !== null) return null;
@@ -36,16 +59,16 @@ export default function App() {
     return null;
   }, [onboardingStep]);
 
-  // Temporary holder for recal level to pass into analyzer
   const [bridgeComfortLevel, setBridgeComfortLevel] = useState(null);
 
-  const { status, currentDb, ambientDb, permissionState, triggerHaptic } = useAudioAnalyzer(personalizedLevels, bridgeComfortLevel);
+  const { status, currentDb, ambientDb, permissionState, isVoiceLike } = useAudioAnalyzer(personalizedLevels, bridgeComfortLevel);
   
   const { currentSession, sessionComfortLevel } = useSessionRecorder(
     currentDb, 
     status, 
     ambientDb, 
-    onboardingStep === null && view === 'main' 
+    onboardingStep === null && view === 'main',
+    user?.id
   );
 
   useEffect(() => {
@@ -58,6 +81,11 @@ export default function App() {
   useEffect(() => {
     latestDbRef.current = currentDb;
   }, [currentDb]);
+
+  const latestVoiceLikeRef = useRef(isVoiceLike);
+  useEffect(() => {
+    latestVoiceLikeRef.current = isVoiceLike;
+  }, [isVoiceLike]);
 
   // Onboarding sequence
   useEffect(() => {
@@ -100,7 +128,8 @@ export default function App() {
         setCountdown(Math.min(100, (elapsed / duration) * 100));
         
         const db = latestDbRef.current;
-        if (db > onboardingData.ambientBaseline + 10) {
+        const voiceLike = latestVoiceLikeRef.current;
+        if (db > ONBOARDING_VOICE_MIN && voiceLike) {
           speechSamples.push(db);
         }
         
@@ -130,10 +159,13 @@ export default function App() {
       localStorage.setItem(LOCAL_STORAGE_KEYS.COMFORTABLE_LEVEL, onboardingData.comfortableLevel);
       localStorage.setItem(LOCAL_STORAGE_KEYS.ONBOARDING_COMPLETE, 'true');
       
-      const timeout = setTimeout(() => {
+      async function finalInit() {
+        const nickname = localStorage.getItem(LOCAL_STORAGE_KEYS.NICKNAME);
+        const u = await getOrCreateUser(nickname);
+        setUser(u);
         setOnboardingStep(null);
-      }, 2000);
-      return () => clearTimeout(timeout);
+      }
+      finalInit();
     }
   }, [onboardingStep, onboardingData.ambientBaseline, isAmbientStarted]);
 
@@ -145,21 +177,6 @@ export default function App() {
     }
   };
 
-  // Reset logic
-  const longPressRef = useRef(null);
-  const handleResetStart = () => {
-    longPressRef.current = setTimeout(() => {
-      localStorage.clear();
-      window.location.reload();
-    }, 3000);
-  };
-  const handleResetEnd = () => {
-    if (longPressRef.current) {
-      clearTimeout(longPressRef.current);
-      longPressRef.current = null;
-    }
-  };
-
   if (permissionState === 'denied') {
     return (
       <div className="denied-screen">
@@ -167,6 +184,15 @@ export default function App() {
         <p className="denied-desc">
           브라우저 설정에서 이 사이트의 마이크 접근을 허용한 뒤 새로고침해 주세요.
         </p>
+      </div>
+    );
+  }
+
+  // Loading Splash
+  if (loadingUser && onboardingStep === null) {
+    return (
+      <div className="app loading-splash">
+        <BreathCanvas status="silent" />
       </div>
     );
   }
@@ -196,9 +222,6 @@ export default function App() {
                 →
               </button>
             </form>
-            <p className="nickname-note">
-              현재 닉네임은 localStorage에만 저장. 추후 Supabase anonymous auth 연동 시 user metadata로 이전하여 다기기 동기화 예정.
-            </p>
           </div>
         </div>
       );
@@ -245,7 +268,21 @@ export default function App() {
   }
 
   if (view === 'insight') {
-    return <InsightView currentSession={currentSession} onBack={() => setView('main')} />;
+    return <InsightView userId={user?.id} onBack={() => setView('main')} onSettings={() => setView('settings')} />;
+  }
+
+  if (view === 'settings') {
+    return (
+      <SettingsView 
+        user={user} 
+        onBack={() => setView('main')} // Fixed: go back to main
+        onNicknameUpdate={(newNick) => setUser(prev => ({ ...prev, nickname: newNick }))}
+        onRecalibrate={() => {
+          setOnboardingStep('speech');
+          setView('main');
+        }}
+      />
+    );
   }
 
   return (
@@ -253,9 +290,9 @@ export default function App() {
       status={status}
       currentDb={currentDb}
       ambientDb={ambientDb}
-      onResetStart={handleResetStart}
-      onResetEnd={handleResetEnd}
+      userId={user?.id}
       onNavigateToInsight={() => setView('insight')}
+      onSettings={() => setView('settings')}
       sessionSeconds={currentSession?.samples?.length || 0}
     />
   );
