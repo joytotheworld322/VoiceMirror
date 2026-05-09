@@ -21,12 +21,12 @@ export async function generateFeedback({
 
   // 오늘 분석값
   const voiced   = Math.round((1 - (todayAnalysis.stateRatio?.silent || 0)) * 100);
-  const halfDiff = (todayAnalysis.secondHalfAvg || 0) - (todayAnalysis.firstHalfAvg || 0);
+  const halfDiff = (todayAnalysis.halfStats?.secondHalfAvg || 0) - (todayAnalysis.halfStats?.firstHalfAvg || 0);
 
   const ambientLevel =
-    (todayAnalysis.ambientAnchor || 0) < 40 ? '조용한 환경' :
-    (todayAnalysis.ambientAnchor || 0) < 55 ? '보통 환경'   :
-    (todayAnalysis.ambientAnchor || 0) < 65 ? '다소 시끄러운 환경' :
+    (todayAnalysis.ambientFloor || 0) < 40 ? '조용한 환경' :
+    (todayAnalysis.ambientFloor || 0) < 55 ? '보통 환경'   :
+    (todayAnalysis.ambientFloor || 0) < 65 ? '다소 시끄러운 환경' :
                                                '시끄러운 환경';
 
   // 주간 패턴 요약
@@ -122,6 +122,26 @@ ${depth === 'long' ? `
 - 소음-발화 상관 경향: ${lombardTrendLabel}` : ''}`;
 
 
+  // 로컬 분석 로직 (로컬 개발 환경 등 API 실패 시 사용)
+  const getLocalFeedback = () => {
+    let msg = nickname ? `${nickname}님, ` : "";
+    const vocalLoad = todayAnalysis.vocalLoadSeconds || 0;
+    const lombard = todayAnalysis.lombardRatio || 0;
+    
+    if (vocalLoad > 10) {
+      msg += "오늘 성대를 꽤 많이 사용하셨네요. 대화 중간에 물을 자주 마시고 목을 휴식시켜주는 것이 좋겠습니다. ";
+    } else if (lombard > 15) {
+      msg += "주변 소음 때문에 목소리가 평소보다 많이 커졌어요. 목에 무리가 갈 수 있으니 조금 더 조용한 곳에서 대화해보는 건 어떨까요? ";
+    } else if (halfDiff > 5) {
+      msg += "대화가 진행될수록 목소리에 힘이 점점 더 들어가고 있어요. 호흡을 조금 더 깊게 가져가 보세요. ";
+    } else {
+      msg += "전반적으로 목소리를 아주 편안하고 일정하게 유지하고 계시네요! 지금처럼 좋은 습관을 유지해 보세요. ";
+    }
+    
+    msg += "\n\n오늘 목 상태는 어떠신가요?";
+    return msg;
+  };
+
   // API 호출
   try {
     const res = await fetch('/api/feedback', {
@@ -133,10 +153,10 @@ ${depth === 'long' ? `
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const data = await res.json();
-    return data.content?.[0]?.text || fallbackText;
+    return data.content?.[0]?.text || data.text || getLocalFeedback();
   } catch (e) {
-    console.error('[FEEDBACK] API 실패:', e);
-    return fallbackText;
+    console.warn('[FEEDBACK] API 호출 실패 (로컬 환경이거나 서버 에러), 로컬 피드백 사용:', e);
+    return getLocalFeedback();
   }
 }
 
