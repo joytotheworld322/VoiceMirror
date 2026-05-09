@@ -71,20 +71,24 @@ function App() {
       console.log('Auth event:', event);
       if (s) {
         // 앱을 새로 켰을 때(INITIAL_SESSION) 온보딩이 미완료 상태라면 세션 강제 종료
+        // 단, 로그인 직후 리다이렉트(AuthCallback)인 경우는 제외
         if (event === 'INITIAL_SESSION') {
-          try {
-            const p = await getUserProfile(s.user.id);
-            if (!p || !p.nickname || p.comfortable_level === null) {
-              console.log('--- 온보딩 미완료 세션 발견: 초기화 처리 ---');
-              await supabase.auth.signOut();
-              setSession(null);
-              setLoading(false);
-              return;
+          const isReturningFromAuth = window.location.search.includes('onboarding');
+          if (!isReturningFromAuth) {
+            try {
+              const p = await getUserProfile(s.user.id);
+              if (!p || !p.nickname || p.comfortable_level === null) {
+                console.log('--- 온보딩 미완료 세션 발견 (정상 접근 아님): 초기화 처리 ---');
+                await supabase.auth.signOut();
+                setSession(null);
+                setLoading(false);
+                return;
+              }
+              setProfile(p);
+              profileRef.current = p;
+            } catch (e) {
+              console.error('Initial profile check failed:', e);
             }
-            setProfile(p);
-            profileRef.current = p;
-          } catch (e) {
-            console.error('Initial profile check failed:', e);
           }
         }
 
