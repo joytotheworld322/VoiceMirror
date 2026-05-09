@@ -7,7 +7,8 @@ export async function signInWithGoogle() {
     options: {
       redirectTo: `${window.location.origin}/auth/callback`,
       queryParams: {
-        prompt: 'select_account',
+        prompt: 'select_account consent',
+        access_type: 'offline',
       },
     },
   });
@@ -23,6 +24,8 @@ export async function getSession() {
 // 로그아웃
 export async function signOut() {
   const { error } = await supabase.auth.signOut();
+  localStorage.clear();
+  sessionStorage.clear();
   if (error) throw error;
 }
 
