@@ -48,8 +48,16 @@ export default function SettingsView({ user, profile, onBack, onRecalibrate, onP
 
   const handleDeleteAccount = async () => {
     try {
+      // 1. 세션 및 프로필 데이터 선제적 삭제 (CASCADE 미작동 대비)
+      await deleteAllSessions(user.id);
+      await supabase.from('users').delete().eq('id', user.id);
+
+      // 2. Auth 계정 삭제 요청 (RPC)
       const { error } = await supabase.rpc('delete_user');
-      if (error) throw error;
+      if (error) {
+        console.warn('RPC delete_user failed/missing:', error);
+      }
+
       await signOut();
       window.location.reload();
     } catch (e) {

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { supabase } from './lib/supabase';
 import { getUserProfile } from './lib/userService';
 import { saveSession } from './lib/sessionService';
+import { signInWithGoogle } from './lib/authService';
 import { analyzeSession } from './utils/analyzeSession';
 import useAudioAnalyzer from './useAudioAnalyzer';
 import LandingView from './views/LandingView';
@@ -96,10 +97,28 @@ function App() {
   // ── 3. 온보딩 단계 결정 ───────────────────────────────────
   useEffect(() => {
     if (loading || !session) return;
-    if (profile && !profile.nickname) { setOnboardingStep('nickname'); return; }
-    if (!isDailyAmbientDone && onboardingStep !== 'voice') { setOnboardingStep('ambient'); return; }
-    if (profile && profile.comfortable_level === null && onboardingStep !== 'voice') { setOnboardingStep('voice'); return; }
-  }, [profile, isDailyAmbientDone, loading, session]);
+
+    // 1순위: 프로필이 아예 없거나 닉네임이 설정되지 않은 경우
+    if (!profile || !profile.nickname) {
+      if (onboardingStep !== 'nickname') setOnboardingStep('nickname');
+      return;
+    }
+
+    // 2순위: 오늘의 주변 소음 측정이 되지 않은 경우 (목소리 측정 중이 아닐 때)
+    if (!isDailyAmbientDone && onboardingStep !== 'voice') {
+      if (onboardingStep !== 'ambient') setOnboardingStep('ambient');
+      return;
+    }
+
+    // 3순위: 최초 목소리 보정(comfortable_level)이 없는 경우
+    if (profile.comfortable_level === null && onboardingStep !== 'voice') {
+      if (onboardingStep !== 'voice') setOnboardingStep('voice');
+      return;
+    }
+
+    // 모든 조건 충족 시 온보딩 모드 해제
+    if (onboardingStep !== null) setOnboardingStep(null);
+  }, [profile, isDailyAmbientDone, loading, session, onboardingStep]);
 
   // ── 4. personalizedLevels ────────────────────────────────
   const personalizedLevels = useMemo(() => {
@@ -300,7 +319,7 @@ function App() {
   if (loading) return <div className="loading-screen">VOICEMIRROR</div>;
 
   if (!session) {
-    return <LandingView onLogin={() => supabase.auth.signInWithOAuth({ provider: 'google' })} />;
+    return <LandingView onLogin={signInWithGoogle} />;
   }
 
   if (onboardingStep === 'nickname') {
