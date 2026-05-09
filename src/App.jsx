@@ -52,6 +52,28 @@ function App() {
     };
   }, []);
 
+  // ── 1. Auth 세션 관리 ──────────────────────────────────────
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      authTokenRef.current = session?.access_token || null;
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      authTokenRef.current = session?.access_token || null;
+      if (!session) {
+        setProfile(null);
+        setIsDailyAmbientDone(false);
+        setOnboardingStep(null);
+        setLoading(false);
+        setCurrentSession(null);
+        currentSessionRef.current = null;
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+
   // ── 2. 프로필 로딩 ────────────────────────────────────────
   const loadProfile = useCallback(async (uid) => {
     try {
@@ -65,57 +87,12 @@ function App() {
     }
   }, []);
 
-  // ── 1. Auth 세션 및 프로필 관리 ──────────────────────────
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, s) => {
-      console.log('Auth event:', event);
-      if (s) {
-        // 앱을 새로 켰을 때(INITIAL_SESSION) 온보딩이 미완료 상태라면 세션 강제 종료
-        // 단, 로그인 직후 리다이렉트(AuthCallback)인 경우는 제외
-        if (event === 'INITIAL_SESSION') {
-          const isReturningFromAuth = window.location.search.includes('onboarding');
-          if (!isReturningFromAuth) {
-            try {
-              const p = await getUserProfile(s.user.id);
-              if (!p || !p.nickname || p.comfortable_level === null) {
-                console.log('--- 온보딩 미완료 세션 발견 (정상 접근 아님): 초기화 처리 ---');
-                await supabase.auth.signOut();
-                setSession(null);
-                setLoading(false);
-                return;
-              }
-              setProfile(p);
-              profileRef.current = p;
-            } catch (e) {
-              console.error('Initial profile check failed:', e);
-            }
-          }
-        }
-
-        setSession(s);
-        authTokenRef.current = s.access_token || null;
-        userIdRef.current = s.user.id;
-        
-        // 로그인 직후 등 프로필이 아직 로드되지 않은 경우 로드
-        if (!profileRef.current) {
-          loadProfile(s.user.id);
-        }
-      } else {
-        setSession(null);
-        setProfile(null);
-        profileRef.current = null;
-        authTokenRef.current = null;
-        userIdRef.current = null;
-        setIsDailyAmbientDone(false);
-        setOnboardingStep(null);
-        setCurrentSession(null);
-        currentSessionRef.current = null;
-      }
-      setLoading(false);
-    });
-    
-    return () => subscription.unsubscribe();
-  }, [loadProfile]);
+    if (session?.user?.id) {
+      userIdRef.current = session.user.id;
+      loadProfile(session.user.id);
+    }
+  }, [session]);
 
   // ── 3. 온보딩 단계 결정 ───────────────────────────────────
   useEffect(() => {
