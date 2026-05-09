@@ -17,10 +17,11 @@ export default async function handler(req, res) {
     const totalSeconds  = samples.length;
     const speechSeconds = samples.filter(s => s.state !== 'silent').length;
 
-    // 저장 조건 미달 시 무시
-    if (totalSeconds < 60 || speechSeconds < 30) {
+    // 저장 조건 미달 시 무시 (최소 15초 유지, 5초 발화)
+    if (totalSeconds < 15 || speechSeconds < 5) {
       return res.status(200).json({ skipped: true });
     }
+
 
     const ambientFloor = session.ambientCount > 0
       ? session.ambientTotal / session.ambientCount : 40;

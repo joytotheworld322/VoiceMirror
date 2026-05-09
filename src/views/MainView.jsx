@@ -48,8 +48,9 @@ export default function MainView({
       <header className="main-header" style={{ 
         flexDirection: 'column', 
         alignItems: 'center', 
-        paddingTop: 'calc(env(safe-area-inset-top) + 60px)' 
+        paddingTop: 'calc(env(safe-area-inset-top) + 40px)' 
       }}>
+
         <h1 className="user-greeting" style={{ fontSize: '18px', fontWeight: '500', color: '#ffffff', letterSpacing: '-0.02em' }}>
           {getDynamicGreeting()}
         </h1>
@@ -68,9 +69,10 @@ export default function MainView({
         alignItems: 'center', 
         paddingLeft: '30px',
         paddingRight: '30px',
-        paddingBottom: 'calc(env(safe-area-inset-bottom) + 50px)', // 세이프 에어리어 적용
+        paddingBottom: 'calc(env(safe-area-inset-bottom) + 24px)', // 여백 최적화
         pointerEvents: 'none'
       }}>
+
         
         {/* 좌측 설정 버튼 */}
         <button 

@@ -32,9 +32,10 @@ export default function OnboardingNickname({ userId, googleName, onComplete }) {
       flexDirection: 'column', 
       alignItems: 'center',
       justifyContent: 'space-between',
-      height: '100vh',
-      padding: '80px 0'
+      height: '100%',
+      padding: 'calc(env(safe-area-inset-top) + 60px) 0 calc(env(safe-area-inset-bottom) + 20px)'
     }}>
+
       {/* 상단: 인디케이터 */}
       <div className="onboarding-step-indicator">
         <span className="dot active"></span>
@@ -110,7 +111,8 @@ export default function OnboardingNickname({ userId, googleName, onComplete }) {
       </button>
 
       <style>{`
-        .onboarding-container { position: relative; width: 100%; height: 100vh; overflow: hidden; }
+        .onboarding-container { position: relative; width: 100%; height: 100%; overflow: hidden; }
+
         .onboarding-step-indicator { display: flex; gap: 8px; }
         .dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.2); }
         .dot.active { background: rgba(255,255,255,0.7); }

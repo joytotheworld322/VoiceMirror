@@ -13,9 +13,10 @@ import SettingsView from './views/SettingsView';
 import InsightView from './views/InsightView';
 import './App.css';
 
-// 세션 저장 최소 조건
-const MIN_SESSION_DURATION = 60;   // 전체 세션 길이 >= 60초
-const MIN_SPEECH_DURATION   = 30;  // 발화 감지 시간 >= 30초
+// 세션 저장 최소 조건 (테스트 및 실제 사용성 개선을 위해 기준 대폭 완화)
+const MIN_SESSION_DURATION = 15;   // 전체 세션 길이 >= 15초
+const MIN_SPEECH_DURATION   = 5;   // 발화 감지 시간 >= 5초
+
 
 function App() {
   const [session, setSession]               = useState(null);
@@ -33,14 +34,32 @@ function App() {
   const bgTimerRef        = useRef(null);
   const userIdRef         = useRef(null);
   const profileRef        = useRef(null);
+  const authTokenRef      = useRef(null);
+
+  // ── Viewport Height Fix for iOS ──────────────────────────
+  useEffect(() => {
+    const setVh = () => {
+      const vh = window.innerHeight * 0.01;
+      document.documentElement.style.setProperty('--vh', `${vh}px`);
+    };
+    setVh();
+    window.addEventListener('resize', setVh);
+    window.addEventListener('orientationchange', setVh);
+    return () => {
+      window.removeEventListener('resize', setVh);
+      window.removeEventListener('orientationchange', setVh);
+    };
+  }, []);
 
   // ── 1. Auth 세션 관리 ──────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      authTokenRef.current = session?.access_token || null;
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      authTokenRef.current = session?.access_token || null;
       if (!session) {
         setProfile(null);
         setIsDailyAmbientDone(false);
@@ -52,6 +71,7 @@ function App() {
     });
     return () => subscription.unsubscribe();
   }, []);
+
 
   // ── 2. 프로필 로딩 ────────────────────────────────────────
   const loadProfile = useCallback(async (uid) => {
@@ -180,10 +200,14 @@ function App() {
         setIsAppActive(false); // 마이크 끄기
         bgTimerRef.current = setTimeout(async () => {
           const snap = currentSessionRef.current;
-          await trySaveSession(snap);
-          setCurrentSession(null);
-          currentSessionRef.current = null;
-        }, 3 * 60 * 1000); // 테스트 편의를 위해 3분으로 단축
+          if (snap && snap.samples.length >= MIN_SESSION_DURATION) {
+            await trySaveSession(snap);
+            setCurrentSession(null);
+            currentSessionRef.current = null;
+          }
+        }, 10 * 1000); // 10초로 대폭 단축 (PWA/모바일 최적화)
+
+
       } else {
         setIsAppActive(true); // 마이크 다시 켜기
         if (bgTimerRef.current) {
@@ -207,15 +231,70 @@ function App() {
       const speechSeconds = snap.samples.filter(s => s.state !== 'silent').length;
       if (speechSeconds < MIN_SPEECH_DURATION) return;
 
-      // navigator.sendBeacon으로 비동기 전송 (beforeunload에서 fetch 불가)
       const uid = userIdRef.current;
       if (!uid) return;
-      const payload = JSON.stringify({ userId: uid, session: snap });
-      navigator.sendBeacon('/api/save-session', payload);
+
+      const analysis = analyzeSession({
+        ...snap,
+        duration: snap.samples.length,
+        ambientFloor: snap.ambientCount > 0 ? snap.ambientTotal / snap.ambientCount : 40,
+      });
+
+      const payload = {
+        user_id: uid,
+        started_at: snap.startedAt,
+        duration: snap.samples.length,
+        ambient_anchor: analysis.ambientFloor,
+        comfortable_level: profileRef.current?.comfortable_level || null,
+        session_comfort_level: null,
+        vocal_load_seconds: analysis.vocalLoadSeconds,
+        lombard_ratio: analysis.lombardRatio,
+        variability: analysis.vocalVariability,
+        state_ratio: analysis.stateRatio,
+        first_half_avg: analysis.halfStats?.firstHalfAvg || null,
+        second_half_avg: analysis.halfStats?.secondHalfAvg || null,
+        samples: snap.samples,
+      };
+
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const token = authTokenRef.current || supabaseKey;
+
+      // pagehide/beforeunload 시 직접 Supabase REST API 호출 (로컬 개발 환경 호환)
+      fetch(`${supabaseUrl}/rest/v1/sessions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${token}`,
+          'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify(payload),
+        keepalive: true
+      });
     };
+
+    window.addEventListener('pagehide', handleUnload); // 모바일 사파리에서는 beforeunload보다 pagehide가 더 권장됨
     window.addEventListener('beforeunload', handleUnload);
-    return () => window.removeEventListener('beforeunload', handleUnload);
+    return () => {
+      window.removeEventListener('pagehide', handleUnload);
+      window.removeEventListener('beforeunload', handleUnload);
+    };
   }, []);
+
+  // ── 9. 인사이트 진입 시 자동 저장 트리거 ────────────────
+  useEffect(() => {
+    if (view === 'insight' && currentSessionRef.current) {
+      const snap = currentSessionRef.current;
+      if (snap.samples.length >= MIN_SESSION_DURATION) {
+        trySaveSession(snap).then(() => {
+          setCurrentSession(null);
+          currentSessionRef.current = null;
+        });
+      }
+    }
+  }, [view, trySaveSession]);
+
 
   // ─────────────────────────────────────────────────────────
   if (loading) return <div className="loading-screen">VOICEMIRROR</div>;
@@ -258,7 +337,9 @@ function App() {
     return (
       <InsightView
         userId={session.user.id}
+        nickname={profile?.nickname}
         currentSession={currentSession}  // 현재 세션 데이터 그대로 전달
+
         onBack={() => setView('main')}   // 복귀 시 같은 세션 계속
       />
     );

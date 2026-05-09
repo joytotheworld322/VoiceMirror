@@ -33,8 +33,9 @@ export default function LandingView({ onLogin }) {
         .landing-view {
           background: #0e0e0e;
           width: 100vw;
-          height: 100vh;
+          height: 100%;
           display: flex;
+
           flex-direction: column;
           align-items: center;
           justify-content: center;

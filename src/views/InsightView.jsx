@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { analyzeSession } from '../utils/analyzeSession';
 import { analyzePattern, analyzeWeekly, DAY_LABELS } from '../utils/analyzePattern';
 import { generateFeedback } from '../utils/generateFeedback';
+import { isWithinWeeks } from '../utils/dateUtils';
 import { getRecentSessions } from '../lib/sessionService';
 
 // ─── 도넛 차트 ───────────────────────────────────────────────
@@ -186,11 +187,15 @@ function WeeklyBarChart({ weeklyData }) {
   );
 }
 
-export default function InsightView({ userId, currentSession, onBack }) {
+export default function InsightView({ userId, nickname, currentSession, onBack }) {
+
   const [dbSessions, setDbSessions] = useState([]);
   const [loadingData, setLoadingData] = useState(true);
   const [feedback, setFeedback] = useState(null);
   const [isLoadingFeedback, setIsLoadingFeedback] = useState(false);
+  const [showScrollHint, setShowScrollHint] = useState(true);
+  const scrollRef = useRef(null);
+
 
   useEffect(() => {
     async function load() {
@@ -246,16 +251,35 @@ export default function InsightView({ userId, currentSession, onBack }) {
   const patternAnalysis = useMemo(() => analyzePattern(sessions), [sessions]);
   const weeklyAnalysis = useMemo(() => analyzeWeekly(dbSessions), [dbSessions]);
 
-  const fetchFeedback = () => {
-    if (sessionAnalysis && !isLoadingFeedback) {
+  const fetchFeedback = async () => {
+    if (sessionAnalysis && !isLoadingFeedback && latestSession) {
       setIsLoadingFeedback(true);
-      generateFeedback(sessionAnalysis, patternAnalysis, latestSession)
-        .then(res => { setFeedback(res); setIsLoadingFeedback(false); })
-        .catch(() => { setIsLoadingFeedback(false); setFeedback('피드백을 가져오는 데 실패했습니다.'); });
+      try {
+        const text = await generateFeedback({
+          nickname,
+          userId,
+          todayAnalysis: sessionAnalysis,
+          patternAnalysis,
+          allSessions: sessions,
+        });
+        setFeedback(text);
+      } catch (error) {
+        setFeedback('피드백을 가져오는 데 실패했습니다.');
+      } finally {
+        setIsLoadingFeedback(false);
+      }
     }
   };
 
+
   useEffect(() => { fetchFeedback(); }, [sessionAnalysis]);
+
+  const handleScroll = (e) => {
+    if (e.target.scrollTop > 20 && showScrollHint) {
+      setShowScrollHint(false);
+    }
+  };
+
 
   const formatDuration = (s) => {
     const m = Math.floor(s / 60), rs = Math.round(s % 60);
@@ -363,14 +387,23 @@ export default function InsightView({ userId, currentSession, onBack }) {
     );
   };
 
+  const depthLabel = (() => {
+    if (!sessions) return '오늘 세션 기반 분석';
+    const monthCount = sessions.filter(s => isWithinWeeks(s.startedAt || s.started_at, 4)).length;
+    const weekCount  = sessions.filter(s => isWithinWeeks(s.startedAt || s.started_at, 1)).length;
+    if (monthCount >= 20) return `${sessions.length}개 세션 기반 분석`;
+    if (weekCount  >= 5)  return `${weekCount}개 세션 기반 분석`;
+    return '오늘 세션 기반 분석';
+  })();
+
   return (
     <div className="insight-view">
       {headerJsx}
 
-      <div className="insight-scroll-content">
+      <div className="insight-scroll-content" ref={scrollRef} onScroll={handleScroll}>
 
         {/* ── 1. TODAY'S VOICE ── */}
-        <section className="insight-card today-voice" style={{ backgroundColor: '#0a1a0f' }}>
+        <section className="insight-card today-voice reveal-item-1" style={{ backgroundColor: '#0a1a0f' }}>
           <span className="eyebrow green">TODAY'S VOICE</span>
           <div className="card-content-row">
             <DonutChart stateRatio={sessionAnalysis.stateRatio} />
@@ -390,7 +423,7 @@ export default function InsightView({ userId, currentSession, onBack }) {
         </section>
 
         {/* ── 2. ENVIRONMENT ── */}
-        <section className="insight-card dark">
+        <section className="insight-card dark reveal-item-2">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
             <span className="eyebrow">ENVIRONMENT</span>
             <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontWeight: 600 }}>오늘 세션 평균 기준</span>
@@ -426,7 +459,7 @@ export default function InsightView({ userId, currentSession, onBack }) {
         </section>
 
         {/* ── 3. THIS WEEK ── */}
-        <section className="insight-card dark" style={{ background: '#111', border: '0.5px solid rgba(255,255,255,0.05)' }}>
+        <section className="insight-card dark reveal-item-3" style={{ background: '#111', border: '0.5px solid rgba(255,255,255,0.05)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
             <span className="eyebrow">THIS WEEK</span>
             <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 600 }}>성대 부하 비율 기준</span>
@@ -440,8 +473,9 @@ export default function InsightView({ userId, currentSession, onBack }) {
         </section>
 
         {/* ── 4. VOICE MIRROR (AI 피드백) ── */}
-        <section className="insight-card feedback-card">
+        <section className="insight-card feedback-card reveal-item-4">
           <span className="eyebrow">VOICE MIRROR</span>
+          <div style={{ fontSize: '8px', color: 'rgba(255,255,255,0.2)', marginBottom: '12px' }}>{depthLabel}</div>
           <div className="divider" />
           {isLoadingFeedback ? (
             <div className="loading-container"><SmallBreathPulse /></div>
@@ -480,6 +514,14 @@ export default function InsightView({ userId, currentSession, onBack }) {
         <div style={{ height: 40 }} />
 
       </div>
+
+      {/* 하단 스크롤 유도 힌트 */}
+      {showScrollHint && (
+        <div className="scroll-hint-container">
+          <div className="scroll-dot" />
+          <span style={{ fontSize: '9px', letterSpacing: '0.1em', opacity: 0.4, fontWeight: 600 }}>SCROLL</span>
+        </div>
+      )}
     </div>
   );
 }

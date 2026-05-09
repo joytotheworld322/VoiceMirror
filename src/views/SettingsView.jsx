@@ -3,11 +3,16 @@ import { updateUserProfile } from '../lib/userService';
 import { deleteAllSessions } from '../lib/sessionService';
 import { signOut } from '../lib/authService';
 import { supabase } from '../lib/supabase';
+import ConfirmModal from '../components/ConfirmModal';
+
 
 export default function SettingsView({ user, profile, onBack, onRecalibrate, onProfileUpdate }) {
   const [isEditingNickname, setIsEditingNickname] = useState(false);
   const [nicknameInput, setNicknameInput] = useState(profile?.nickname || '');
   const [isSavingNickname, setIsSavingNickname] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
 
   // 프로필 정보가 변경되면 입력창 상태도 최신화
   useEffect(() => {
@@ -42,19 +47,21 @@ export default function SettingsView({ user, profile, onBack, onRecalibrate, onP
   };
 
   const handleDeleteAccount = async () => {
-    const confirmed = window.confirm("탈퇴하면 모든 세션 기록이\n영구적으로 삭제돼요.\n정말 탈퇴할까요?");
-    if (confirmed) {
-      try {
-        const { error } = await supabase.rpc('delete_user');
-        if (error) throw error;
-        await signOut();
-        window.location.reload();
-      } catch (e) {
-        console.error('탈퇴 실패:', e);
-        alert('탈퇴 처리 중 오류가 발생했습니다.');
-      }
+    try {
+      const { error } = await supabase.rpc('delete_user');
+      if (error) throw error;
+      await signOut();
+      window.location.reload();
+    } catch (e) {
+      console.error('탈퇴 실패:', e);
+      alert('탈퇴 처리 중 오류가 발생했습니다.');
     }
   };
+
+  const handleLogout = async () => {
+    await signOut();
+  };
+
 
   const formatDate = (dateStr) => {
     if (!dateStr) return '기록 없음';
@@ -80,22 +87,25 @@ export default function SettingsView({ user, profile, onBack, onRecalibrate, onP
             <span className="settings-item-label">닉네임</span>
             <div className="settings-item-content">
               {isEditingNickname ? (
-                <form onSubmit={handleNicknameSubmit} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', opacity: isSavingNickname ? 0.6 : 1, pointerEvents: isSavingNickname ? 'none' : 'auto' }}>
+
+                <form onSubmit={handleNicknameSubmit} style={{ display: 'flex', alignItems: 'center', gap: 12, opacity: isSavingNickname ? 0.6 : 1 }}>
                   <input 
                     autoFocus 
                     value={nicknameInput} 
                     onChange={e => setNicknameInput(e.target.value)}
                     className="nickname-edit-input"
                     disabled={isSavingNickname}
-                    style={{ background: isSavingNickname ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.05)' }}
+                    onBlur={() => {
+                      if (!nicknameInput.trim() || nicknameInput === profile?.nickname) {
+                        closeEdit();
+                      }
+                    }}
                   />
-                  <button type="submit" className="icon-circle-btn primary" disabled={isSavingNickname} style={{ width: 38, height: 38, background: '#4adf84', color: '#0e0e0e', border: 'none', opacity: isSavingNickname ? 0.5 : 1 }}>
+                  <button type="submit" className="icon-circle-btn primary" disabled={isSavingNickname} style={{ width: 36, height: 36, background: '#4adf84', color: '#0e0e0e', border: 'none' }}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                   </button>
-                  <button type="button" onClick={closeEdit} className="icon-circle-btn" disabled={isSavingNickname} style={{ width: 38, height: 38, opacity: isSavingNickname ? 0.5 : 1 }}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                  </button>
                 </form>
+
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <span className="settings-item-value">{profile?.nickname}</span>
@@ -143,12 +153,36 @@ export default function SettingsView({ user, profile, onBack, onRecalibrate, onP
             </div>
             
             <div className="settings-item-row no-border" style={{ justifyContent: 'flex-start', gap: 20 }}>
-              <button onClick={() => signOut()} className="text-action-btn">로그아웃</button>
-              <button onClick={handleDeleteAccount} className="text-action-btn danger">탈퇴하기</button>
+              <button onClick={() => setShowLogoutConfirm(true)} className="text-action-btn">로그아웃</button>
+              <button onClick={() => setShowDeleteConfirm(true)} className="text-action-btn danger">탈퇴하기</button>
             </div>
+
           </div>
         </div>
       </div>
+
+      {/* 로그아웃 확인 모달 */}
+      <ConfirmModal 
+        isOpen={showLogoutConfirm}
+        onClose={() => setShowLogoutConfirm(false)}
+        onConfirm={handleLogout}
+        title="정말 로그아웃하시겠어요?"
+        message="언제든 다시 돌아와 목소리를 기록해보세요."
+        confirmText="로그아웃"
+      />
+
+
+      {/* 탈퇴 확인 모달 */}
+      <ConfirmModal 
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        onConfirm={handleDeleteAccount}
+        title="정말 탈퇴하시겠어요?"
+        message={"탈퇴 시 모든 세션 기록이\n영구적으로 삭제되며 복구할 수 없어요."}
+        confirmText="탈퇴하기"
+        isDanger={true}
+      />
+
 
       <style>{`
         .settings-view { height: 100vh; overflow-y: auto; }
@@ -219,17 +253,18 @@ export default function SettingsView({ user, profile, onBack, onRecalibrate, onP
         }
         
         .nickname-edit-input {
-          background: rgba(255,255,255,0.05);
+          background: rgba(255,255,255,0.06);
           border: 1px solid rgba(255,255,255,0.1);
-          border-radius: 8px;
+          border-radius: 10px;
           color: white;
           padding: 0 12px;
-          height: 38px;
-          font-size: 15px;
+          height: 36px;
+          font-size: 16px; /* iOS zoom 방지를 위해 16px 이상 유지 */
           outline: none;
-          flex: 1;
-          min-width: 0;
+          width: 140px;
+          text-align: right;
         }
+
         
         .settings-label { font-size: 12px; color: rgba(255,255,255,0.3); font-weight: 600; letter-spacing: 0.05em; padding-left: 4px; }
       `}</style>

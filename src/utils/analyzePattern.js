@@ -58,6 +58,19 @@ export function analyzeWeekly(rawSessions) {
 }
 
 export function analyzePattern(sessions) {
+  const { weeklyData } = analyzeWeekly(sessions);
+  const validDays = weeklyData
+    .map((d, i) => (d ? { ...d, idx: i } : null))
+    .filter(Boolean);
+
+  const hardestDay = validDays.length >= 2
+    ? validDays.reduce((a, b) => a.dangerRatio > b.dangerRatio ? a : b).idx
+    : null;
+
+  const easiestDay = validDays.length >= 2
+    ? validDays.reduce((a, b) => a.dangerRatio < b.dangerRatio ? a : b).idx
+    : null;
+
   if (!Array.isArray(sessions) || sessions.length === 0) {
     return {
       insufficient: true,
@@ -67,6 +80,8 @@ export function analyzePattern(sessions) {
       variabilityTrend: [],
       loadColors: [],
       trendMessage: 'insufficient',
+      hardestDay,
+      easiestDay,
     };
   }
 
@@ -97,5 +112,5 @@ export function analyzePattern(sessions) {
     else trendMessage = 'stable';
   }
 
-  return { insufficient, sessionCount: count, vocalLoadTrend, lombardTrend, variabilityTrend, loadColors, trendMessage };
+  return { insufficient, sessionCount: count, vocalLoadTrend, lombardTrend, variabilityTrend, loadColors, trendMessage, hardestDay, easiestDay };
 }
